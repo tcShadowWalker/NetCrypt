@@ -199,18 +199,20 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		enc.feed (buffer.data(), r);
 		enc.finalize();
 		if (DebugEnabled >= 3) {
-			std::cerr << "IV: " << printableString(std::string(buffer.data(), ivLen)) << "\n";
-			std::cerr << "Tag: " << printableString(std::string(buffer.data() + ivLen, tagLen)) << "\n";
+			std::cerr << "IV: " << printableString(std::string(iv, ivLen)) << "\n";
+			std::cerr << "Tag: " << printableString(std::string(enc.tag(), tagLen)) << "\n";
 		}
-		const uint32_t encBlockSize = encryptedBlock.size();
-		iovec iov[4] = {
-			{iv, ivLen},
-			{(void*)enc.tag(), tagLen},
-			{(void*)&encBlockSize, sizeof(encBlockSize)},
+		const size_t headerSize = ivLen + tagLen + sizeof(uint32_t);
+		unsigned char header[headerSize];
+		memcpy (&header[    0], iv, ivLen);
+		memcpy (&header[ivLen], enc.tag(), tagLen);
+		*((uint32_t *)&header[ivLen+tagLen]) = (uint32_t)encryptedBlock.size();
+		iovec iov[2] = {
+			{header, sizeof(header)},
 			{(void*)encryptedBlock.data(), encryptedBlock.size()},
 		};
-		const size_t expected = encryptedBlock.size() + ivLen + tagLen + sizeof(encBlockSize);
-		ssize_t w = writev(dataSocket, iov, 4);
+		const size_t expected = headerSize + encryptedBlock.size();
+		ssize_t w = writev(dataSocket, iov, 2);
 		Debug("Sent: " + std::to_string(r));
 		if (w != expected)
 			throw std::runtime_error ("Write error. " + std::string((errno != 0) ? strerror(errno) : ""));
