@@ -7,7 +7,7 @@
 struct evp_cipher_ctx_st;
 struct evp_cipher_st;
 
-namespace NetTool {
+namespace JpsNet {
 namespace Crypt {
 
 void InitCryptLibrary ();
@@ -38,7 +38,9 @@ public:
 	
 	const std::string &finalize ();
 	
-	inline std::string tag () const { return std::string(ctag, GCM_TAG_LENGTH); }
+	inline std::string tagString () const { return std::string(ctag, GCM_TAG_LENGTH); }
+	
+	inline const char *tag () const { return ctag; }
 private:
 	const evp_cipher_st *cipher;
 	evp_cipher_ctx_st *ctx;
@@ -88,6 +90,8 @@ int KeySizeForCipher (const char *cipher = 0);
 void generateRandomBytes (int length, void *out);
 
 void generateRandomString (int length, std::string *out);
+
+void uc2sc (char *destStr, const unsigned char *sourceStr, int len);
 
 void generateHash (const char *in, size_t length, std::string *out, const char *algo = DEFAULT_HASH_ALGORITHM);
 
