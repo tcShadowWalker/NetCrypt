@@ -131,7 +131,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			std::cerr << std::endl;
 		}
 		if (opt->passphrase.empty())
-			throw boost::program_options::error("Please specify a password using the environment variable JPSNET_PASSPHRASE");
+			throw boost::program_options::error("Please specify a password using the environment variable NETCRYPT_PASSPHRASE");
 	}
 	// Check that cipher name is valid
 	(void)Crypt::KeySizeForCipher(opt->preferedCipher.c_str());
@@ -150,6 +150,8 @@ void determineInOut (DataStream *dstream, ProgOpts *opt) {
 				Debug("stat() failed on input file");
 		}
 		dstream->inPtr.reset(new std::ifstream (opt->infile, std::ios::in));
+		if (!dstream->inPtr->is_open())
+			throw std::runtime_error ("Could not open input file " + opt->infile);
 		dstream->in = dstream->inPtr.get();
 	} else if (stdinInputAvailable() && !stdinIsTerminal()) {
 		opt->op = OP_WRITE;
@@ -162,6 +164,8 @@ void determineInOut (DataStream *dstream, ProgOpts *opt) {
 		opt->op = OP_READ;
 		Debug("Output to file " + opt->outfile);
 		dstream->outPtr.reset(new std::ofstream (opt->outfile, std::ios::out));
+		if (!dstream->outPtr->is_open())
+			throw std::runtime_error ("Could not open output file " + opt->outfile);
 		dstream->out = dstream->outPtr.get();
 	} else if (opt->op == OP_NONE) {
 		if (!stdoutIsTerminal()) {

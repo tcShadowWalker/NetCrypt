@@ -20,8 +20,8 @@ bool stderrIsTerminal ();
 bool stdinInputAvailable ();
 void setTerminalEcho(bool enable);
 
-typedef std::unique_ptr<std::istream> IStreamPtr;
-typedef std::unique_ptr<std::ostream> OStreamPtr;
+typedef std::unique_ptr<std::ifstream> IStreamPtr;
+typedef std::unique_ptr<std::ofstream> OStreamPtr;
 
 struct DataStream {
 	IStreamPtr inPtr;

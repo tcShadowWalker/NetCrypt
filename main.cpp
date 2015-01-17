@@ -190,7 +190,7 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		ssize_t w = writev(dataSocket, iov, 4);
 		Debug("Sent: " + std::to_string(r));
 		if (w != expected)
-			throw std::runtime_error ("Write error: " + std::string(strerror(errno)));
+			throw std::runtime_error ("Write error. " + std::string((errno != 0) ? strerror(errno) : ""));
 		totalByteCount += r;
 	}
 	Debug ("Total bytes sent: " + std::to_string(totalByteCount));
