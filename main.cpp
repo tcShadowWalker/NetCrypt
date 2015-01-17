@@ -5,9 +5,21 @@
 #include <boost/program_options.hpp>
 #include <unistd.h>
 #include <sys/poll.h>
+#include <sys/socket.h>
 #include <fstream>
+#include <netdb.h>
+#include <stdexcept>
+#include <array>
+#include <arpa/inet.h>
 
 #define JPSNET_VERSION "0.1.2"
+
+bool DebugEnabled = false;
+
+void Debug (const std::string &s) {
+	if (DebugEnabled)
+		printf ("%s\n", s.c_str());
+}
 
 bool stdinInputAvailable () {
 	struct pollfd fds;
@@ -64,6 +76,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		("host,h", po::value(&opt->target_host)->value_name("hostname"), "Hostname to connect to")
 		("port,p", po::value(&opt->target_port), "Target port to connect to")
 		("compression", po::value(&opt->compression)->value_name("algorithm"), "Set compression level")
+		("debug", po::bool_switch(&DebugEnabled), "Enable debug output")
 	;
 	po::options_description passphrase_desc("Passphrase options");
 	passphrase_desc.add_options()
@@ -103,33 +116,39 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 
 typedef std::unique_ptr<std::istream> IStreamPtr;
 typedef std::unique_ptr<std::ostream> OStreamPtr;
+
 struct DataStream {
 	IStreamPtr inPtr;
 	OStreamPtr outPtr;
 	std::istream *in = nullptr;
 	std::ostream *out = nullptr;
+	int socket = -1;
 };
 
 
 void determineInOut (DataStream *dstream, ProgOpts *opt) {
 	if (opt->infile != "") {
-		opt->op = OP_READ;
+		opt->op = OP_WRITE;
+		Debug("Input from file " + opt->infile);
 		dstream->inPtr.reset(new std::ifstream (opt->infile, std::ios::in));
 		dstream->in = dstream->inPtr.get();
 	} else if (stdinInputAvailable() && !stdinIsTerminal()) {
-		opt->op = OP_READ;
+		opt->op = OP_WRITE;
+		Debug("Input from Stdin");
 		dstream->in = &std::cin;
 	}
 	if (opt->outfile != "") {
 		if (opt->op != OP_NONE)
 			throw boost::program_options::error("Cannot perform both input and output in one operation");
-		opt->op = OP_WRITE;
+		opt->op = OP_READ;
+		Debug("Output to file " + opt->outfile);
 		dstream->outPtr.reset(new std::ofstream (opt->outfile, std::ios::out));
 		dstream->out = dstream->outPtr.get();
 	} else if (opt->op == OP_NONE) {
 		if (!stdoutIsTerminal()) {
+			Debug("Output on Stdout");
 			dstream->out = &std::cout;
-			opt->op = OP_WRITE;
+			opt->op = OP_READ;
 		} else {
 			throw boost::program_options::error("No mode of operation specified. "
 			"Use either --infile or --outfile.");
@@ -138,18 +157,120 @@ void determineInOut (DataStream *dstream, ProgOpts *opt) {
 	assert (dstream->in || dstream->out);
 }
 
+void openNetDevice (const ProgOpts &pOpt, DataStream &dStream) {
+	if (pOpt.netOp == NET_CONNECT) {
+		struct addrinfo hint;
+		memset(&hint, 0, sizeof(hint));
+		hint.ai_socktype = SOCK_STREAM;
+		struct addrinfo *results = 0;
+		int r = getaddrinfo(pOpt.target_host.c_str(), std::to_string(pOpt.target_port).c_str(), &hint, &results);
+		if (r != 0)
+			throw std::runtime_error (gai_strerror(r));
+		while (struct addrinfo *res = results) {
+			dStream.socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+			if (dStream.socket < 0)
+				throw std::runtime_error ("Failed to open socket: " + std::string(strerror(errno)));
+			std::array<char,50> addr_ascii;
+			Debug(std::string("Connecting to ") + inet_ntop(res->ai_family, res->ai_addr,
+						 addr_ascii.data(), addr_ascii.size() - 1));
+			if (connect(dStream.socket, res->ai_addr, res->ai_addrlen) == 0) {
+				break;
+			}
+			close(dStream.socket);
+			res = res->ai_next;
+		}
+		freeaddrinfo(results);
+		if (dStream.socket == -1)
+			throw std::runtime_error ("Failed to establish connection: " + std::string(strerror(errno)));
+	} else if (pOpt.netOp == NET_LISTEN) {
+		dStream.socket = socket(AF_INET6, SOCK_STREAM, 0);
+		if (dStream.socket < 0)
+			throw std::runtime_error ("Failed to open socket: " + std::string(strerror(errno)));
+		int reuseaddr = 1;
+		if (setsockopt(dStream.socket, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) != 0)
+			throw std::runtime_error ("Failed to set socket options: " + std::string(strerror(errno)));
+		sockaddr_in6 addr;
+		memset(&addr, 0, sizeof(addr));
+		addr.sin6_addr = IN6ADDR_ANY_INIT;
+		addr.sin6_family = AF_INET6;
+		addr.sin6_port = htons(pOpt.listen_port);
+		if (bind(dStream.socket, (const sockaddr*)&addr, sizeof(addr)) != 0)
+			throw std::runtime_error ("Failed to bind socket: " + std::string(strerror(errno)));
+		if (listen(dStream.socket, 1) != 0)
+			throw std::runtime_error ("Failed to listen on socket: " + std::string(strerror(errno)));
+		struct sockaddr_storage client_addr;
+		socklen_t addr_len = sizeof(client_addr);
+		int r = accept (dStream.socket, (sockaddr*)&client_addr, &addr_len);
+		if (r == -1)
+			throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
+	}
+	assert (dStream.socket != -1);
+}
+
+void handleIncomingData (DataStream &dStream, const char *data, size_t length) {
+	assert (dStream.out != nullptr);
+	Debug("Read: " + std::to_string(length));
+	dStream.out->write(data, length);
+}
+
+bool sendData (DataStream &dStream) {
+	assert (dStream.in != nullptr);
+	std::array<char, 4096> buffer;
+	dStream.in->read(buffer.data(), buffer.size());
+	ssize_t r = dStream.in->gcount();
+	Debug("Send: " + std::to_string(r));
+	if (r == 0)
+		return false;
+	assert (r > 0);
+	if (write (dStream.socket, buffer.data(), r) != r)
+		throw std::runtime_error ("Write error: " + std::string(strerror(errno)));
+	return true;
+}
+
+void sendReceiveData (const ProgOpts &pOpt, DataStream &dStream) {
+	assert (dStream.socket != -1);
+	if (pOpt.op == OP_READ) {
+		std::array<char, 4096> buffer;
+		while (true) {
+			ssize_t s = read (dStream.socket, buffer.data(), buffer.size());
+			if (s == 0)
+				break;
+			else if (s < 0)
+				throw std::runtime_error ("Read error: " + std::string(strerror(errno)));
+			handleIncomingData (dStream, buffer.data(), (size_t)s);
+		}
+	} else if (pOpt.op == OP_WRITE) {
+		while (sendData(dStream)) {
+		}
+	}
+}
+
 int main (int argc, char **argv) {
 	ProgOpts progOpt;
+	DataStream dStream;
 	try {
 		if (!evaluateOptions (argc, argv, &progOpt))
 			return 1;
 		assert (progOpt.netOp != NET_NONE);
-		DataStream dStream;
+		Debug(std::string("Net direction: ") + ( (progOpt.netOp == NET_LISTEN) ? "Listen" : "Connect" ));
 		determineInOut (&dStream, &progOpt);
 		assert (progOpt.op != OP_NONE);
+		Debug(std::string("Net Operation: ") + ( (progOpt.op == OP_READ) ? "Read" : "Write" ));
 	} catch (const std::exception &e) {
 		std::cerr << "Error parsing command line options:\n" << e.what() << "\n";
 		return 1;
 	}
-	
+	try {
+		openNetDevice (progOpt, dStream);
+	} catch (const std::exception &e) {
+		std::cerr << "Networking error: " << e.what() << "\n";
+		return 1;
+	}
+	try {
+		sendReceiveData (progOpt, dStream);
+		close(dStream.socket);
+	} catch (const std::exception &e) {
+		std::cerr << "Operation error: " << e.what() << "\n";
+		return 1;
+	}
 }
