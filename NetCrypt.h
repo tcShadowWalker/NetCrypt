@@ -7,7 +7,7 @@
 
 namespace NetCrypt {
 
-extern bool DebugEnabled;
+extern int DebugEnabled;
 
 inline void Debug (const std::string &s) {
 	if (DebugEnabled)

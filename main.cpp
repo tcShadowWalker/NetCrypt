@@ -13,7 +13,7 @@
 
 namespace NetCrypt {
 
-bool DebugEnabled = false;
+int DebugEnabled = 0;
 
 bool evaluateOptions (int argc, char **argv, ProgOpts *opt);
 
@@ -99,6 +99,12 @@ std::string printableString (const std::string &s) {
 	return std::move(n);
 }
 
+void printDebugCryptoParameters (const TransmissionHeader &tInfo, const std::string &pass) {
+	std::cerr << "Salt: '" << printableString(std::string(tInfo.salt, tInfo.saltLength)) << "'\n";
+	std::cerr << "Passphrase: '" << printableString(pass) << "'\n";
+	std::cerr << "Key iteration count: " << tInfo.keyIterationCount << "\n";
+}
+
 void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	assert (dataSocket != -1);
 	assert (pOpt.op == OP_READ);
@@ -116,6 +122,9 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 						0, (unsigned char*)&realPassphrase[0], realPassphrase.size());
 	const size_t ivLen = Crypt::IvSizeForCipher(usedCipher.c_str()),
 				tagLen = Crypt::GCM_TAG_LENGTH;
+	Debug("IV length: " + std::to_string(ivLen) + ", tag length: " + std::to_string(tagLen));
+	if (DebugEnabled >= 2)
+		printDebugCryptoParameters (tranInfo, realPassphrase);
 	uint32_t blockSize = pOpt.blockSize;
 	std::vector<char> buffer ( blockSize + sizeof(blockSize) + ivLen + tagLen );
 	Crypt::Decryption dec (usedCipher.c_str());
@@ -165,6 +174,8 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 						0, (unsigned char*)&realPassphrase[0], realPassphrase.size());
 	tranInfo.keyIterationCount = pOpt.keyIterationCount;
 	strncpy (tranInfo.cipherName, cipher.c_str(), sizeof(tranInfo.cipherName));
+	if (DebugEnabled >= 2)
+		printDebugCryptoParameters (tranInfo, realPassphrase);
 	if (write (dataSocket, &tranInfo, sizeof(tranInfo)) != sizeof(tranInfo))
 		throw std::runtime_error ("Write init error: " + std::string(strerror(errno)));
 	Crypt::Encryption enc (cipher.c_str());

@@ -39,7 +39,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	general_desc.add_options()
 		("help", "Produce this help message")
 		("version", "Print version string and quit")
-		("debug", po::bool_switch(&DebugEnabled), "Enable debug output")
+		("debug", po::value(&DebugEnabled)->implicit_value(0), "Enable debug output")
 	;
 	po::options_description cfg_desc("Program options");
 	cfg_desc.add_options()
