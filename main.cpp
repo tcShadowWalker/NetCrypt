@@ -158,6 +158,7 @@ void determineInOut (DataStream *dstream, ProgOpts *opt) {
 }
 
 void openNetDevice (const ProgOpts &pOpt, DataStream &dStream) {
+	std::array<char,50> addr_ascii;
 	if (pOpt.netOp == NET_CONNECT) {
 		struct addrinfo hint;
 		memset(&hint, 0, sizeof(hint));
@@ -170,9 +171,9 @@ void openNetDevice (const ProgOpts &pOpt, DataStream &dStream) {
 			dStream.socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 			if (dStream.socket < 0)
 				throw std::runtime_error ("Failed to open socket: " + std::string(strerror(errno)));
-			std::array<char,50> addr_ascii;
-			Debug(std::string("Connecting to ") + inet_ntop(res->ai_family, res->ai_addr,
-						 addr_ascii.data(), addr_ascii.size() - 1));
+			getnameinfo((const sockaddr*)res->ai_addr, res->ai_addrlen,
+						addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
+			Debug(std::string("Connecting to ") + addr_ascii.data());
 			if (connect(dStream.socket, res->ai_addr, res->ai_addrlen) == 0) {
 				break;
 			}
@@ -203,6 +204,9 @@ void openNetDevice (const ProgOpts &pOpt, DataStream &dStream) {
 		int r = accept (dStream.socket, (sockaddr*)&client_addr, &addr_len);
 		if (r == -1)
 			throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
+		getnameinfo((const sockaddr*)&client_addr, addr_len,
+						addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
+		Debug(std::string("Connection from ") + addr_ascii.data());
 	}
 	assert (dStream.socket != -1);
 }
@@ -252,10 +256,10 @@ int main (int argc, char **argv) {
 		if (!evaluateOptions (argc, argv, &progOpt))
 			return 1;
 		assert (progOpt.netOp != NET_NONE);
-		Debug(std::string("Net direction: ") + ( (progOpt.netOp == NET_LISTEN) ? "Listen" : "Connect" ));
+		Debug(std::string("Network mode: ") + ( (progOpt.netOp == NET_LISTEN) ? "Listen" : "Connect" ));
 		determineInOut (&dStream, &progOpt);
 		assert (progOpt.op != OP_NONE);
-		Debug(std::string("Net Operation: ") + ( (progOpt.op == OP_READ) ? "Read" : "Write" ));
+		Debug(std::string("Network operation: ") + ( (progOpt.op == OP_READ) ? "Read" : "Write" ));
 	} catch (const std::exception &e) {
 		std::cerr << "Error parsing command line options:\n" << e.what() << "\n";
 		return 1;
@@ -273,4 +277,5 @@ int main (int argc, char **argv) {
 		std::cerr << "Operation error: " << e.what() << "\n";
 		return 1;
 	}
+	return 0;
 }
