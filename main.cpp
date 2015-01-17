@@ -136,6 +136,10 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 			break;
 		else if (s < 0)
 			throw std::runtime_error ("Read error: " + std::string(strerror(errno)));
+		if (DebugEnabled >= 3) {
+			std::cerr << "IV: " << printableString(std::string(buffer.data(), ivLen)) << "\n";
+			std::cerr << "Tag: " << printableString(std::string(buffer.data() + ivLen, tagLen)) << "\n";
+		}
 		dec.init (realPassphrase, std::string(buffer.data(), ivLen),
 					std::string(buffer.data() + ivLen, tagLen));
 		memcpy (&blockSize, buffer.data() + ivLen + tagLen, sizeof(blockSize));
@@ -156,6 +160,7 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	}
 	Debug ("Total bytes read: " + std::to_string(totalByteCount));
 }
+
 void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	assert (pOpt.op == OP_WRITE);
 	assert (dataSocket != -1);
@@ -190,6 +195,10 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		enc.init (realPassphrase, std::string(iv, ivLen));
 		enc.feed (buffer.data(), r);
 		enc.finalize();
+		if (DebugEnabled >= 3) {
+			std::cerr << "IV: " << printableString(std::string(buffer.data(), ivLen)) << "\n";
+			std::cerr << "Tag: " << printableString(std::string(buffer.data() + ivLen, tagLen)) << "\n";
+		}
 		const uint32_t encBlockSize = encryptedBlock.size();
 		iovec iov[4] = {
 			{iv, ivLen},

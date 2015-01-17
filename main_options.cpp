@@ -39,7 +39,9 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	general_desc.add_options()
 		("help", "Produce this help message")
 		("version", "Print version string and quit")
-		("debug", po::value(&DebugEnabled)->implicit_value(0), "Enable debug output")
+		("debug", po::value(&DebugEnabled)->default_value(0)->implicit_value(1),
+			"Enable debug output. 1 - print informative output, "
+			"2 - will output cryptographic data in encoded cleartext")
 	;
 	po::options_description cfg_desc("Program options");
 	cfg_desc.add_options()
@@ -69,7 +71,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"Key iteration count for key derivation function PBKDF2")
 		("interactive", po::bool_switch(&interactive)->default_value(false),
 			"Read password interactively from stdin, if not set in environment variable")
-		// ("no-encryption", po::bool_switch(&opt->noEncrypt)->hidden(),
+		// ("no-encryption", po::bool_switch(&opt->noEncrypt),
 		//	 "Disable authenticated encryption. Insecure plaintext transmission.")
 	;
 	po::options_description passphrase_desc("Passphrase options");
