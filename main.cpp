@@ -109,6 +109,7 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		throw std::runtime_error ("Read init error: " + std::string(strerror(errno)));
 	const std::string usedCipher (tranInfo.cipherName,
 							strnlen(tranInfo.cipherName, sizeof(tranInfo.cipherName)));
+	Debug ("Using cipher " + usedCipher);
 	std::string realPassphrase (Crypt::KeySizeForCipher(usedCipher.c_str()), '\0');
 	Crypt::keyDerivation(pOpt.passphrase.c_str(), pOpt.passphrase.size(),
 						tranInfo.salt, tranInfo.saltLength, pOpt.keyIterationCount,

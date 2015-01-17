@@ -99,6 +99,8 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	if (opt->passphrase.empty()) {
 		throw boost::program_options::error("Please specify a password using the environment variable JPSNET_PASSPHRASE");
 	}
+	// Check that cipher name is valid
+	(void)Crypt::KeySizeForCipher(opt->preferedCipher.c_str());
 	return true;
 }
 
