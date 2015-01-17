@@ -86,9 +86,9 @@ size_t fetchDataFromFile (DataStream &dStream, char *data, size_t length) {
 
 struct TransmissionHeader {
 	uint32_t keyIterationCount;
-	uint16_t version;
+	uint16_t version = 1;
 	uint8_t saltLength;
-	uint8_t _padding1_;
+	uint8_t _padding1_ = 0;
 	char salt[30];
 	char cipherName[30]; // Null-terminated cipher name
 };
@@ -101,7 +101,7 @@ std::string printableString (const std::string &s) {
 
 void printDebugCryptoParameters (const TransmissionHeader &tInfo, const std::string &pass) {
 	std::cerr << "Salt: '" << printableString(std::string(tInfo.salt, tInfo.saltLength)) << "'\n";
-	std::cerr << "Passphrase: '" << printableString(pass) << "'\n";
+	std::cerr << "Key: '" << printableString(pass) << "'\n";
 	std::cerr << "Key iteration count: " << tInfo.keyIterationCount << "\n";
 }
 

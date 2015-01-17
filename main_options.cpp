@@ -54,8 +54,8 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		("host,h", po::value(&opt->target_host) /*->value_name("hostname")*/,
 			"Hostname to connect to")
 		("port,p", po::value(&opt->target_port), "Target port to connect to")
-		("server", po::bool_switch(&opt->serverMode)->default_value(false),
-			"Continue to listen on the socket for incoming clients.\n"
+		("once", po::bool_switch(&opt->acceptOnce)->default_value(false),
+			"Accept only incomming connection and exit after transmission.\n"
 			"Only useful in listening mode")
 		("compression", po::value(&opt->compression) /*->value_name("algorithm")*/,
 			"Set compression algorithm")

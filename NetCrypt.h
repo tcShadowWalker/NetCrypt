@@ -50,7 +50,7 @@ struct ProgOpts {
 	std::string passphrase;
 	bool generatePassphrase;
 	uint16_t listen_port;
-	bool serverMode;
+	bool acceptOnce;
 	int compression;
 	std::string infile;
 	std::string outfile;
