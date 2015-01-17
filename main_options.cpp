@@ -43,23 +43,23 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	;
 	po::options_description cfg_desc("Program options");
 	cfg_desc.add_options()
-		("listen,l", po::value(&opt->listen_port)->value_name("port"),
-			"Listen on socket")
-		("infile,i", po::value(&opt->infile)->value_name("filename"),
+		("listen,l", po::value(&opt->listen_port) /*->value_name("port")*/,
+			"Listen on port")
+		("infile,i", po::value(&opt->infile) /*->value_name("filename")*/,
 			"Input file or device to read from")
-		("outfile,o", po::value(&opt->outfile)->value_name("filename"),
+		("outfile,o", po::value(&opt->outfile) /*->value_name("filename")*/,
 			"Output file or device to  write to")
-		("host,h", po::value(&opt->target_host)->value_name("hostname"),
+		("host,h", po::value(&opt->target_host) /*->value_name("hostname")*/,
 			"Hostname to connect to")
 		("port,p", po::value(&opt->target_port), "Target port to connect to")
 		("server", po::bool_switch(&opt->serverMode)->default_value(false),
 			"Continue to listen on the socket for incoming clients.\n"
 			"Only useful in listening mode")
-		("compression", po::value(&opt->compression)->value_name("algorithm"),
-			"Set compression level")
-		("cipher", po::value(&opt->preferedCipher)->value_name("name")
+		("compression", po::value(&opt->compression) /*->value_name("algorithm")*/,
+			"Set compression algorithm")
+		("cipher", po::value(&opt->preferedCipher)
 			->default_value("aes-256-gcm"), "Choice of encryption cipher.")
-		("digest", po::value(&opt->digest)->value_name("name")
+		("digest", po::value(&opt->digest)
 			->default_value("sha-256"), "Name of secure message digest algorithm")
 		("blocksize", po::value(&opt->blockSize)->default_value(32768), "Transmission block size")
 		("genpass", po::bool_switch(&opt->generatePassphrase)->default_value(false),
