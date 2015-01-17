@@ -144,13 +144,12 @@ void determineInOut (DataStream *dstream, ProgOpts *opt) {
 	if (opt->infile != "") {
 		opt->op = OP_WRITE;
 		Debug("Input from file " + opt->infile);
-		if (DebugEnabled) {
-			struct stat st;
-			if (stat (opt->infile.c_str(), &st) == 0)
-				Debug("Input file total size: " + std::to_string(st.st_size));
-			else
-				Debug("stat() failed on input file");
-		}
+		struct stat st;
+		if (stat (opt->infile.c_str(), &st) == 0) {
+			dstream->totalSize = st.st_size;
+			Debug("Input file total size: " + std::to_string(st.st_size));
+		} else
+			Debug("stat() failed on input file");
 		dstream->inPtr.reset(new std::ifstream (opt->infile, std::ios::in));
 		if (!dstream->inPtr->is_open())
 			throw std::runtime_error ("Could not open input file " + opt->infile);

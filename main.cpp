@@ -89,6 +89,7 @@ struct TransmissionHeader {
 	uint16_t version = 1;
 	uint8_t saltLength;
 	uint8_t _padding1_ = 0;
+	uint64_t totalSize;
 	char salt[30];
 	char cipherName[30]; // Null-terminated cipher name
 };
@@ -103,6 +104,7 @@ void printDebugCryptoParameters (const TransmissionHeader &tInfo, const std::str
 	std::cerr << "Salt: '" << printableString(std::string(tInfo.salt, tInfo.saltLength)) << "'\n";
 	std::cerr << "Key: '" << printableString(pass) << "'\n";
 	std::cerr << "Key iteration count: " << tInfo.keyIterationCount << "\n";
+	std::cerr << "Total byte size: " << tInfo.totalSize << "\n";
 }
 
 void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
@@ -178,6 +180,7 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 						tranInfo.salt, tranInfo.saltLength, pOpt.keyIterationCount,
 						0, (unsigned char*)&realPassphrase[0], realPassphrase.size());
 	tranInfo.keyIterationCount = pOpt.keyIterationCount;
+	tranInfo.totalSize = dStream.totalSize;
 	strncpy (tranInfo.cipherName, cipher.c_str(), sizeof(tranInfo.cipherName));
 	if (DebugEnabled >= 2)
 		printDebugCryptoParameters (tranInfo, realPassphrase);
