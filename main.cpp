@@ -17,7 +17,6 @@
 #define JPSNET_VERSION "0.1.2"
 
 bool DebugEnabled = false;
-const int MaxBlockSize = 32768;
 
 void Debug (const std::string &s) {
 	if (DebugEnabled)
@@ -57,6 +56,7 @@ struct ProgOpts {
 	std::string outfile;
 	std::string target_host;
 	uint16_t target_port;
+	unsigned int blockSize;
 	NetworkOpType netOp = NET_NONE;
 	OperationType op = OP_NONE;
 };
@@ -67,6 +67,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	general_desc.add_options()
 		("help", "Produce this help message")
 		("version", "Print version string and quit")
+		("debug", po::bool_switch(&DebugEnabled), "Enable debug output")
 	;
 	po::options_description cfg_desc("Program options");
 	cfg_desc.add_options()
@@ -79,7 +80,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		("host,h", po::value(&opt->target_host)->value_name("hostname"), "Hostname to connect to")
 		("port,p", po::value(&opt->target_port), "Target port to connect to")
 		("compression", po::value(&opt->compression)->value_name("algorithm"), "Set compression level")
-		("debug", po::bool_switch(&DebugEnabled), "Enable debug output")
+		("blocksize", po::value(&opt->blockSize)->default_value(32768), "Transmission block size")
 	;
 	po::options_description passphrase_desc("Passphrase options");
 	passphrase_desc.add_options()
@@ -235,7 +236,7 @@ size_t fetchData (DataStream &dStream, char *data, size_t length) {
 
 void sendReceiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	assert (dataSocket != -1);
-	std::array<char, MaxBlockSize> buffer;
+	std::vector<char> buffer (pOpt.blockSize);
 	size_t totalByteCount = 0;
 	if (pOpt.op == OP_READ) {
 		assert (dStream.out != nullptr);
