@@ -30,48 +30,39 @@ void openNetDevice (const ProgOpts &pOpt, DataStream &dStream, int *dataSocket) 
 		if (r != 0)
 			throw std::runtime_error (gai_strerror(r));
 		for (struct addrinfo *res = results; res; res = res->ai_next) {
-			dStream.socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-			if (dStream.socket < 0)
+			*dataSocket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+			if (*dataSocket < 0)
 				continue;
 			getnameinfo((const sockaddr*)res->ai_addr, res->ai_addrlen,
 						addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
 			Debug(std::string("Connecting to ") + addr_ascii.data());
-			if (connect(dStream.socket, res->ai_addr, res->ai_addrlen) == 0) {
+			if (connect(*dataSocket, res->ai_addr, res->ai_addrlen) == 0) {
 				break;
 			}
-			close(dStream.socket);
-			dStream.socket = -1;
+			close(*dataSocket);
+			*dataSocket = -1;
 		}
 		freeaddrinfo(results);
-		if (dStream.socket == -1)
+		if (*dataSocket == -1)
 			throw std::runtime_error ("Failed to establish connection: " + std::string(strerror(errno)));
-		*dataSocket = dStream.socket;
 	} else if (pOpt.netOp == NET_LISTEN) {
-		dStream.socket = socket(AF_INET6, SOCK_STREAM, 0);
-		if (dStream.socket < 0)
+		*dataSocket = socket(AF_INET6, SOCK_STREAM, 0);
+		if (*dataSocket < 0)
 			throw std::runtime_error ("Failed to open socket: " + std::string(strerror(errno)));
 		int reuseaddr = 1;
-		if (setsockopt(dStream.socket, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) != 0)
+		if (setsockopt(*dataSocket, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) != 0)
 			throw std::runtime_error ("Failed to set socket options: " + std::string(strerror(errno)));
 		sockaddr_in6 addr;
 		memset(&addr, 0, sizeof(addr));
 		addr.sin6_addr = IN6ADDR_ANY_INIT;
 		addr.sin6_family = AF_INET6;
 		addr.sin6_port = htons(pOpt.listen_port);
-		if (bind(dStream.socket, (const sockaddr*)&addr, sizeof(addr)) != 0)
+		if (bind(*dataSocket, (const sockaddr*)&addr, sizeof(addr)) != 0)
 			throw std::runtime_error ("Failed to bind socket: " + std::string(strerror(errno)));
-		if (listen(dStream.socket, 1) != 0)
+		if (listen(*dataSocket, 1) != 0)
 			throw std::runtime_error ("Failed to listen on socket: " + std::string(strerror(errno)));
-		struct sockaddr_storage client_addr;
-		socklen_t addr_len = sizeof(client_addr);
-		*dataSocket = accept (dStream.socket, (sockaddr*)&client_addr, &addr_len);
-		if (*dataSocket == -1)
-			throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
-		getnameinfo((const sockaddr*)&client_addr, addr_len,
-						addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
-		Debug(std::string("Connection from ") + addr_ascii.data());
 	}
-	assert (dStream.socket != -1);
+	assert (*dataSocket != -1);
 }
 
 void writeDataToFile (DataStream &dStream, const char *data, size_t length) {
@@ -249,14 +240,25 @@ int main (int argc, char **argv) {
 		return 1;
 	}
 	try {
-		if (progOpt.op == OP_READ)
-			receiveData (progOpt, dStream, dataSocket);
-		else
+		std::array<char, 50> addr_ascii;
+		if (progOpt.op == OP_READ) {
+			struct sockaddr_storage client_addr;
+			socklen_t addr_len = sizeof(client_addr);
+			int clientSock = accept (dataSocket, (sockaddr*)&client_addr, &addr_len);
+			if (clientSock == -1)
+				throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
+			getnameinfo((const sockaddr*)&client_addr, addr_len,
+							addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
+			Debug(std::string("Connection from ") + addr_ascii.data());
+			receiveData (progOpt, dStream, clientSock);
+			close(clientSock);
+		} else {
 			sendData (progOpt, dStream, dataSocket);
-		close(dStream.socket);
+		}
+		close(dataSocket);
 	} catch (const std::exception &e) {
 		std::cerr << "Operation error: " << e.what() << "\n";
 		return 1;
 	}
-	return (dStream.transmissionOk == true) ? 0 : 1;
+	return 0;
 }

@@ -40,8 +40,9 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		("help", "Produce this help message")
 		("version", "Print version string and quit")
 		("debug", po::value(&DebugEnabled)->default_value(0)->implicit_value(1),
-			"Enable debug output. 1 - print informative output, "
-			"2 - will output cryptographic data in encoded cleartext")
+			"Enable debug output.\n1 - print informative output.\n"
+			"2 - output cryptographic data in encoded cleartext.\n"
+			"3 - print metadata about all transmitted packages")
 	;
 	po::options_description cfg_desc("Program options");
 	cfg_desc.add_options()
@@ -55,7 +56,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"Hostname to connect to")
 		("port,p", po::value(&opt->target_port), "Target port to connect to")
 		("once", po::bool_switch(&opt->acceptOnce)->default_value(false),
-			"Accept only incomming connection and exit after transmission.\n"
+			"Accept only one incomming connection and exit after transmission. "
 			"Only useful in listening mode")
 		("compression", po::value(&opt->compression) /*->value_name("algorithm")*/,
 			"Set compression algorithm")
@@ -71,6 +72,9 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"Key iteration count for key derivation function PBKDF2")
 		("interactive", po::bool_switch(&interactive)->default_value(false),
 			"Read password interactively from stdin, if not set in environment variable")
+		// TODO
+		/*("progress", po::bool_switch(&opt->showProgress)->default_value(false),
+			"Show progress and speed of transfer")*/
 		// ("no-encryption", po::bool_switch(&opt->noEncrypt),
 		//	 "Disable authenticated encryption. Insecure plaintext transmission.")
 	;

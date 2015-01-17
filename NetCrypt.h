@@ -28,9 +28,7 @@ struct DataStream {
 	OStreamPtr outPtr;
 	std::istream *in = nullptr;
 	std::ostream *out = nullptr;
-	int socket = -1;
 	uint64_t totalSize = 0;
-	bool transmissionOk = true;
 };
 
 enum NetworkOpType {
