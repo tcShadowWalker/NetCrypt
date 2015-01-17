@@ -6,15 +6,18 @@
 #include <unistd.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <fstream>
 #include <netdb.h>
 #include <stdexcept>
 #include <array>
 #include <arpa/inet.h>
+#include <signal.h>
 
 #define JPSNET_VERSION "0.1.2"
 
 bool DebugEnabled = false;
+const int MaxBlockSize = 32768;
 
 void Debug (const std::string &s) {
 	if (DebugEnabled)
@@ -123,6 +126,7 @@ struct DataStream {
 	std::istream *in = nullptr;
 	std::ostream *out = nullptr;
 	int socket = -1;
+	bool transmissionOk = true;
 };
 
 
@@ -130,6 +134,13 @@ void determineInOut (DataStream *dstream, ProgOpts *opt) {
 	if (opt->infile != "") {
 		opt->op = OP_WRITE;
 		Debug("Input from file " + opt->infile);
+		if (DebugEnabled) {
+			struct stat st;
+			if (stat (opt->infile.c_str(), &st) == 0)
+				Debug("Input file total size: " + std::to_string(st.st_size));
+			else
+				Debug("stat() failed on input file");
+		}
 		dstream->inPtr.reset(new std::ifstream (opt->infile, std::ios::in));
 		dstream->in = dstream->inPtr.get();
 	} else if (stdinInputAvailable() && !stdinIsTerminal()) {
@@ -157,7 +168,7 @@ void determineInOut (DataStream *dstream, ProgOpts *opt) {
 	assert (dstream->in || dstream->out);
 }
 
-void openNetDevice (const ProgOpts &pOpt, DataStream &dStream) {
+void openNetDevice (const ProgOpts &pOpt, DataStream &dStream, int *dataSocket) {
 	std::array<char,50> addr_ascii;
 	if (pOpt.netOp == NET_CONNECT) {
 		struct addrinfo hint;
@@ -167,10 +178,10 @@ void openNetDevice (const ProgOpts &pOpt, DataStream &dStream) {
 		int r = getaddrinfo(pOpt.target_host.c_str(), std::to_string(pOpt.target_port).c_str(), &hint, &results);
 		if (r != 0)
 			throw std::runtime_error (gai_strerror(r));
-		while (struct addrinfo *res = results) {
+		for (struct addrinfo *res = results; res; res = res->ai_next) {
 			dStream.socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 			if (dStream.socket < 0)
-				throw std::runtime_error ("Failed to open socket: " + std::string(strerror(errno)));
+				continue;
 			getnameinfo((const sockaddr*)res->ai_addr, res->ai_addrlen,
 						addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
 			Debug(std::string("Connecting to ") + addr_ascii.data());
@@ -178,11 +189,12 @@ void openNetDevice (const ProgOpts &pOpt, DataStream &dStream) {
 				break;
 			}
 			close(dStream.socket);
-			res = res->ai_next;
+			dStream.socket = -1;
 		}
 		freeaddrinfo(results);
 		if (dStream.socket == -1)
 			throw std::runtime_error ("Failed to establish connection: " + std::string(strerror(errno)));
+		*dataSocket = dStream.socket;
 	} else if (pOpt.netOp == NET_LISTEN) {
 		dStream.socket = socket(AF_INET6, SOCK_STREAM, 0);
 		if (dStream.socket < 0)
@@ -201,8 +213,8 @@ void openNetDevice (const ProgOpts &pOpt, DataStream &dStream) {
 			throw std::runtime_error ("Failed to listen on socket: " + std::string(strerror(errno)));
 		struct sockaddr_storage client_addr;
 		socklen_t addr_len = sizeof(client_addr);
-		int r = accept (dStream.socket, (sockaddr*)&client_addr, &addr_len);
-		if (r == -1)
+		*dataSocket = accept (dStream.socket, (sockaddr*)&client_addr, &addr_len);
+		if (*dataSocket == -1)
 			throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
 		getnameinfo((const sockaddr*)&client_addr, addr_len,
 						addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
@@ -212,40 +224,45 @@ void openNetDevice (const ProgOpts &pOpt, DataStream &dStream) {
 }
 
 void handleIncomingData (DataStream &dStream, const char *data, size_t length) {
-	assert (dStream.out != nullptr);
-	Debug("Read: " + std::to_string(length));
 	dStream.out->write(data, length);
 }
 
-bool sendData (DataStream &dStream) {
-	assert (dStream.in != nullptr);
-	std::array<char, 4096> buffer;
-	dStream.in->read(buffer.data(), buffer.size());
+size_t fetchData (DataStream &dStream, char *data, size_t length) {
+	dStream.in->read(data, length);
 	ssize_t r = dStream.in->gcount();
-	Debug("Send: " + std::to_string(r));
-	if (r == 0)
-		return false;
-	assert (r > 0);
-	if (write (dStream.socket, buffer.data(), r) != r)
-		throw std::runtime_error ("Write error: " + std::string(strerror(errno)));
-	return true;
+	return r;
 }
 
-void sendReceiveData (const ProgOpts &pOpt, DataStream &dStream) {
-	assert (dStream.socket != -1);
+void sendReceiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
+	assert (dataSocket != -1);
+	std::array<char, MaxBlockSize> buffer;
+	size_t totalByteCount = 0;
 	if (pOpt.op == OP_READ) {
-		std::array<char, 4096> buffer;
+		assert (dStream.out != nullptr);
 		while (true) {
-			ssize_t s = read (dStream.socket, buffer.data(), buffer.size());
+			const ssize_t s = read (dataSocket, buffer.data(), buffer.size());
 			if (s == 0)
 				break;
 			else if (s < 0)
 				throw std::runtime_error ("Read error: " + std::string(strerror(errno)));
+			Debug("Read: " + std::to_string(s));
+			totalByteCount += s;
 			handleIncomingData (dStream, buffer.data(), (size_t)s);
 		}
+		Debug ("Total bytes read: " + std::to_string(totalByteCount));
 	} else if (pOpt.op == OP_WRITE) {
-		while (sendData(dStream)) {
+		assert (dStream.in != nullptr);
+		while (true) {
+			const size_t r = fetchData(dStream, buffer.data(), buffer.size());
+			if (r == 0)
+				break;
+			Debug("Send: " + std::to_string(r));
+			if (write (dataSocket, buffer.data(), r) != r) {
+				throw std::runtime_error ("Write error: " + std::string(strerror(errno)));
+			}
+			totalByteCount += r;
 		}
+		Debug ("Total bytes sent: " + std::to_string(totalByteCount));
 	}
 }
 
@@ -264,18 +281,20 @@ int main (int argc, char **argv) {
 		std::cerr << "Error parsing command line options:\n" << e.what() << "\n";
 		return 1;
 	}
+	signal(SIGPIPE, SIG_IGN);
+	int dataSocket;
 	try {
-		openNetDevice (progOpt, dStream);
+		openNetDevice (progOpt, dStream, &dataSocket);
 	} catch (const std::exception &e) {
 		std::cerr << "Networking error: " << e.what() << "\n";
 		return 1;
 	}
 	try {
-		sendReceiveData (progOpt, dStream);
+		sendReceiveData (progOpt, dStream, dataSocket);
 		close(dStream.socket);
 	} catch (const std::exception &e) {
 		std::cerr << "Operation error: " << e.what() << "\n";
 		return 1;
 	}
-	return 0;
+	return (dStream.transmissionOk == true) ? 0 : 1;
 }
