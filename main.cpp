@@ -212,6 +212,14 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	Debug ("Total bytes sent: " + std::to_string(totalByteCount));
 }
 
+void sendOrReceive (const ProgOpts &progOpt, DataStream &dStream, int dataSocket) {
+	if (progOpt.op == OP_READ) {
+		receiveData(progOpt, dStream, dataSocket);
+	} else {
+		sendData(progOpt, dStream, dataSocket);
+	}
+}
+
 }
 
 int main (int argc, char **argv) {
@@ -232,30 +240,30 @@ int main (int argc, char **argv) {
 		return 1;
 	}
 	signal(SIGPIPE, SIG_IGN);
-	int dataSocket;
+	int serverSock;
 	try {
-		openNetDevice (progOpt, dStream, &dataSocket);
+		openNetDevice (progOpt, dStream, &serverSock);
 	} catch (const std::exception &e) {
 		std::cerr << "Networking error: " << e.what() << "\n";
 		return 1;
 	}
 	try {
 		std::array<char, 50> addr_ascii;
-		if (progOpt.op == OP_READ) {
+		if (progOpt.netOp == NET_LISTEN) {
 			struct sockaddr_storage client_addr;
 			socklen_t addr_len = sizeof(client_addr);
-			int clientSock = accept (dataSocket, (sockaddr*)&client_addr, &addr_len);
-			if (clientSock == -1)
+			int dataSocket = accept (serverSock, (sockaddr*)&client_addr, &addr_len);
+			if (dataSocket == -1)
 				throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
 			getnameinfo((const sockaddr*)&client_addr, addr_len,
 							addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
 			Debug(std::string("Connection from ") + addr_ascii.data());
-			receiveData (progOpt, dStream, clientSock);
-			close(clientSock);
-		} else {
-			sendData (progOpt, dStream, dataSocket);
+			sendOrReceive (progOpt, dStream, dataSocket);
+			close(dataSocket);
+		} else if (progOpt.netOp == NET_CONNECT) {
+			sendOrReceive (progOpt, dStream, serverSock);
 		}
-		close(dataSocket);
+		close(serverSock);
 	} catch (const std::exception &e) {
 		std::cerr << "Operation error: " << e.what() << "\n";
 		return 1;
