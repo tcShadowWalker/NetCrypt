@@ -1,193 +1,23 @@
+#include "JpsNet.h"
 #include "SymmetricEncryption.h"
 #include <iostream>
-#include <string>
 #include <vector>
-#include <boost/program_options.hpp>
-#include <unistd.h>
-#include <sys/poll.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <fstream>
+#include <string.h>
 #include <netdb.h>
 #include <stdexcept>
 #include <array>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <unistd.h>
+#include <assert.h>
 
-#define JPSNET_VERSION "0.1.2"
+namespace JpsNet {
 
 bool DebugEnabled = false;
-using namespace JpsNet;
 
-void Debug (const std::string &s) {
-	if (DebugEnabled)
-		printf ("%s\n", s.c_str());
-}
+bool evaluateOptions (int argc, char **argv, ProgOpts *opt);
 
-bool stdinInputAvailable () {
-	struct pollfd fds;
-	int ret;
-	fds.fd = fileno(stdin);
-	fds.events = POLLIN;
-	ret = poll(&fds, 1, 0);
-	return (ret == 1);
-}
-
-bool stdinIsTerminal () { return isatty(fileno(stdin)); }
-bool stdoutIsTerminal () { return isatty(fileno(stdout)); }
-bool stderrIsTerminal () { return isatty(fileno(stdin)); }
-
-enum NetworkOpType {
-	NET_NONE = 0,
-	NET_LISTEN,
-	NET_CONNECT,
-};
-
-enum OperationType {
-	OP_NONE = 0,
-	OP_READ,
-	OP_WRITE,
-};
-
-struct ProgOpts {
-	std::string cipher;
-	std::string digest;
-	std::string passphrase;
-	bool generatePassphrase;
-	uint16_t listen_port;
-	int compression;
-	std::string infile;
-	std::string outfile;
-	std::string target_host;
-	uint16_t target_port;
-	unsigned int blockSize;
-	NetworkOpType netOp = NET_NONE;
-	OperationType op = OP_NONE;
-};
-
-bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
-	namespace po = boost::program_options;
-	po::options_description general_desc("General");
-	general_desc.add_options()
-		("help", "Produce this help message")
-		("version", "Print version string and quit")
-		("debug", po::bool_switch(&DebugEnabled), "Enable debug output")
-	;
-	po::options_description cfg_desc("Program options");
-	cfg_desc.add_options()
-		("listen,l", po::value(&opt->listen_port)->value_name("port"), "Listen on socket")
-		("infile,i", po::value(&opt->infile)->value_name("filename"), "Input file or device to read from")
-		("outfile,o", po::value(&opt->outfile)->value_name("filename"), "Output file or device to  write to")
-		("host,h", po::value(&opt->target_host)->value_name("hostname"), "Hostname to connect to")
-		("port,p", po::value(&opt->target_port), "Target port to connect to")
-		("compression", po::value(&opt->compression)->value_name("algorithm"), "Set compression level")
-		("cipher", po::value(&opt->cipher)->value_name("name")
-			->default_value("aes-256-gcm"), "Choice of encryption cipher.")
-		("digest", po::value(&opt->digest)->value_name("name")
-			->default_value("sha-256"), "Name of secure message digest algorithm")
-		("blocksize", po::value(&opt->blockSize)->default_value(32768), "Transmission block size")
-		("genpass", po::bool_switch(&opt->generatePassphrase)->default_value(false),
-			"Generate a random passphrase and print it on stderr. "
-			"This only makes sense in 'listening' mode, when stderr is connected to a TTY."
-		)
-	;
-	po::options_description passphrase_desc("Passphrase options");
-	passphrase_desc.add_options()
-		("passphrase", po::value(&opt->passphrase), "Passphrase for encryption")
-	;
-	po::variables_map vm;
-	po::options_description cmdline_options;
-	cmdline_options.add(general_desc).add(cfg_desc);
-	po::store(po::parse_command_line(argc, argv, cmdline_options), vm);
-	po::store(po::parse_environment(passphrase_desc, "JPSNET_"), vm);
-	po::notify(vm);
-	if (argc == 1 || vm.count("help")) {
-		std::cout << cmdline_options << "\n";
-		return false;
-	} else if (vm.count("version")) {
-		std::cout << "JpsNet version " << JPSNET_VERSION << "\n";
-		return false;
-	}
-	if (vm.count("listen") > 0)
-		opt->netOp = NET_LISTEN;
-	if (vm.count("host") > 0) {
-		if (opt->netOp != NET_NONE)
-			throw boost::program_options::error("Cannot perform multiple network modes");
-		if (vm.count("port") != 1)
-			throw boost::program_options::error("A target port is required in 'connect' mode");
-		opt->netOp = NET_CONNECT;
-	}
-	if (opt->netOp == NET_NONE) {
-		throw boost::program_options::error("You did not specify a mode of network mode. "
-			"Use either connect or listen mode.");
-	}
-	if (opt->generatePassphrase) {
-		if (!stderrIsTerminal())
-			throw boost::program_options::error("To generate a passphrase, stderr must "
-				"be connected to an interactive tty");
-		if (opt->netOp != NET_LISTEN)
-			throw boost::program_options::error("Generating a passphrase is only useful "
-				"when waiting for incoming connections");
-		std::string rawPwd = Crypt::generateRandomString(Crypt::KeySizeForCipher());
-		opt->passphrase.resize(rawPwd.size() * 2 + 1);
-		Crypt::uc2sc(&opt->passphrase[0], (const unsigned char*)rawPwd.data(), rawPwd.size());
-		std::cerr << "Generated passphrase: " << opt->passphrase << std::endl;
-	}
-	if (opt->passphrase == "") {
-		throw boost::program_options::error("Please specify a password using the environment variable JPSNET_PASSPHRASE");
-	}
-	return true;
-}
-
-typedef std::unique_ptr<std::istream> IStreamPtr;
-typedef std::unique_ptr<std::ostream> OStreamPtr;
-
-struct DataStream {
-	IStreamPtr inPtr;
-	OStreamPtr outPtr;
-	std::istream *in = nullptr;
-	std::ostream *out = nullptr;
-	int socket = -1;
-	bool transmissionOk = true;
-};
-
-void determineInOut (DataStream *dstream, ProgOpts *opt) {
-	if (opt->infile != "") {
-		opt->op = OP_WRITE;
-		Debug("Input from file " + opt->infile);
-		if (DebugEnabled) {
-			struct stat st;
-			if (stat (opt->infile.c_str(), &st) == 0)
-				Debug("Input file total size: " + std::to_string(st.st_size));
-			else
-				Debug("stat() failed on input file");
-		}
-		dstream->inPtr.reset(new std::ifstream (opt->infile, std::ios::in));
-		dstream->in = dstream->inPtr.get();
-	} else if (stdinInputAvailable() && !stdinIsTerminal()) {
-		opt->op = OP_WRITE;
-		Debug("Input from Stdin");
-		dstream->in = &std::cin;
-	}
-	if (opt->outfile != "") {
-		if (opt->op != OP_NONE)
-			throw boost::program_options::error("Cannot perform both input and output in one operation");
-		opt->op = OP_READ;
-		Debug("Output to file " + opt->outfile);
-		dstream->outPtr.reset(new std::ofstream (opt->outfile, std::ios::out));
-		dstream->out = dstream->outPtr.get();
-	} else if (opt->op == OP_NONE) {
-		if (!stdoutIsTerminal()) {
-			Debug("Output on Stdout");
-			dstream->out = &std::cout;
-			opt->op = OP_READ;
-		} else {
-			throw boost::program_options::error("No mode of operation specified. "
-			"Use either --infile or --outfile.");
-		}
-	}
-	assert (dstream->in || dstream->out);
-}
+void determineInOut (DataStream *dstream, ProgOpts *opt);
 
 void openNetDevice (const ProgOpts &pOpt, DataStream &dStream, int *dataSocket) {
 	std::array<char,50> addr_ascii;
@@ -244,89 +74,131 @@ void openNetDevice (const ProgOpts &pOpt, DataStream &dStream, int *dataSocket) 
 	assert (dStream.socket != -1);
 }
 
-void handleIncomingData (DataStream &dStream, const char *data, size_t length) {
+void writeDataToFile (DataStream &dStream, const char *data, size_t length) {
 	dStream.out->write(data, length);
 }
 
-size_t fetchData (DataStream &dStream, char *data, size_t length) {
+size_t fetchDataFromFile (DataStream &dStream, char *data, size_t length) {
 	dStream.in->read(data, length);
 	ssize_t r = dStream.in->gcount();
 	return r;
 }
 
 struct TransmissionHeader {
-	uint32_t initialBlockSize;
+	uint32_t keyIterationCount;
 	uint16_t version;
-	char padding[30];
+	uint8_t saltLength;
+	uint8_t _padding1_;
+	char salt[30];
+	char cipherName[30]; // Null-terminated cipher name
 };
 
-void sendReceiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
+std::string printableString (const std::string &s) {
+	std::string n (s.size() * 2, '\0');
+	Crypt::uc2sc(&n[0], (const unsigned char*)s.c_str(), s.size());
+	return std::move(n);
+}
+
+void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	assert (dataSocket != -1);
-	const size_t ivLen = Crypt::IvSizeForCipher(pOpt.cipher.c_str()),
-	             tagLen = Crypt::GCM_TAG_LENGTH;
+	assert (pOpt.op == OP_READ);
+	assert (dStream.out != nullptr);
 	size_t totalByteCount = 0;
-	if (pOpt.op == OP_READ) {
-		assert (dStream.out != nullptr);
-		TransmissionHeader transmissionInfo;
-		if (read (dataSocket, &transmissionInfo, sizeof(transmissionInfo)) != sizeof(transmissionInfo))
-			throw std::runtime_error ("Read init error: " + std::string(strerror(errno)));
-		uint32_t blockSize = transmissionInfo.initialBlockSize;
-		std::vector<char> buffer ( blockSize + sizeof(blockSize) + ivLen + tagLen );
-		Crypt::Decryption dec (pOpt.cipher.c_str());
-		std::string decryptedBlock;
-		dec.setOutputBuffer(&decryptedBlock);
-		while (true) {
-			const ssize_t s = read (dataSocket, buffer.data(), buffer.size());
-			if (s == 0)
-				break;
-			else if (s < 0)
-				throw std::runtime_error ("Read error: " + std::string(strerror(errno)));
-			dec.init (pOpt.passphrase, std::string(buffer.data(), ivLen),
-					  std::string(buffer.data() + ivLen, tagLen));
-			memcpy (&blockSize, buffer.data() + ivLen + tagLen, sizeof(blockSize));
-			dec.feed(buffer.data() + ivLen + tagLen + sizeof(blockSize), blockSize);
+	TransmissionHeader tranInfo;
+	if (read (dataSocket, &tranInfo, sizeof(tranInfo)) != sizeof(tranInfo))
+		throw std::runtime_error ("Read init error: " + std::string(strerror(errno)));
+	const std::string usedCipher (tranInfo.cipherName,
+							strnlen(tranInfo.cipherName, sizeof(tranInfo.cipherName)));
+	std::string realPassphrase (Crypt::KeySizeForCipher(usedCipher.c_str()), '\0');
+	Crypt::keyDerivation(pOpt.passphrase.c_str(), pOpt.passphrase.size(),
+						tranInfo.salt, tranInfo.saltLength, pOpt.keyIterationCount,
+						0, (unsigned char*)&realPassphrase[0], realPassphrase.size());
+	const size_t ivLen = Crypt::IvSizeForCipher(usedCipher.c_str()),
+				tagLen = Crypt::GCM_TAG_LENGTH;
+	uint32_t blockSize = pOpt.blockSize;
+	std::vector<char> buffer ( blockSize + sizeof(blockSize) + ivLen + tagLen );
+	Crypt::Decryption dec (usedCipher.c_str());
+	std::string decryptedBlock;
+	dec.setOutputBuffer(&decryptedBlock);
+	while (true) {
+		const ssize_t s = read (dataSocket, buffer.data(), buffer.size());
+		if (s == 0)
+			break;
+		else if (s < 0)
+			throw std::runtime_error ("Read error: " + std::string(strerror(errno)));
+		dec.init (realPassphrase, std::string(buffer.data(), ivLen),
+					std::string(buffer.data() + ivLen, tagLen));
+		memcpy (&blockSize, buffer.data() + ivLen + tagLen, sizeof(blockSize));
+		if (blockSize > buffer.size())
+			throw std::runtime_error ("Received block size too large");
+		dec.feed(buffer.data() + ivLen + tagLen + sizeof(blockSize), blockSize);
+		try {
 			dec.finalize();
-			Debug("Read: " + std::to_string(decryptedBlock.size()));
-			totalByteCount += s;
-			handleIncomingData (dStream, decryptedBlock.data(), decryptedBlock.size());
+		} catch (const std::exception &e) {
+			if (DebugEnabled)
+				Debug(e.what());
+			throw std::runtime_error ("Decryption failed. Probably the given "
+				"passphrase does not match the one used for encryption");
 		}
-		Debug ("Total bytes read: " + std::to_string(totalByteCount));
-	} else if (pOpt.op == OP_WRITE) {
-		assert (dStream.in != nullptr);
-		std::vector<char> buffer (pOpt.blockSize);
-		TransmissionHeader firstHead {pOpt.blockSize};
-		if (write (dataSocket, &firstHead, sizeof(firstHead)) != sizeof(firstHead))
-			throw std::runtime_error ("Write init error: " + std::string(strerror(errno)));
-		Crypt::Encryption enc (pOpt.cipher.c_str());
-		std::string encryptedBlock;
-		enc.setOutputBuffer(&encryptedBlock);
-		char iv[ivLen + 1];
-		while (true) {
-			const size_t r = fetchData(dStream, buffer.data(), buffer.size());
-			if (r == 0)
-				break;
-			Debug("Send: " + std::to_string(r));
-			Crypt::generateRandomBytes(ivLen, iv);
-			enc.init (pOpt.passphrase, std::string(iv, ivLen));
-			enc.feed (buffer.data(), r);
-			enc.finalize();
-			const uint32_t encBlockSize = encryptedBlock.size();
-			iovec iov[4] = {
-				{iv, ivLen},
-				{(void*)enc.tag(), tagLen},
-				{(void*)&encBlockSize, sizeof(encBlockSize)},
-				{(void*)encryptedBlock.data(), encryptedBlock.size()},
-			};
-			const size_t expected = encryptedBlock.size() + ivLen + tagLen + sizeof(encBlockSize);
-			if (writev(dataSocket, iov, 4) != expected)
-				throw std::runtime_error ("Write error: " + std::string(strerror(errno)));
-			totalByteCount += r;
-		}
-		Debug ("Total bytes sent: " + std::to_string(totalByteCount));
+		Debug("Read: " + std::to_string(decryptedBlock.size()));
+		totalByteCount += s;
+		writeDataToFile (dStream, decryptedBlock.data(), decryptedBlock.size());
 	}
+	Debug ("Total bytes read: " + std::to_string(totalByteCount));
+}
+void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
+	assert (pOpt.op == OP_WRITE);
+	assert (dataSocket != -1);
+	assert (dStream.in != nullptr);
+	size_t totalByteCount = 0;
+	const std::string cipher = pOpt.preferedCipher;
+	const size_t ivLen = Crypt::IvSizeForCipher(cipher.c_str()),
+				tagLen = Crypt::GCM_TAG_LENGTH;
+	std::string realPassphrase (Crypt::KeySizeForCipher(cipher.c_str()), '0');
+	std::vector<char> buffer (pOpt.blockSize);
+	TransmissionHeader tranInfo;
+	tranInfo.saltLength = sizeof(tranInfo.salt);
+	Crypt::generateRandomBytes(tranInfo.saltLength, tranInfo.salt);
+	Crypt::keyDerivation(pOpt.passphrase.c_str(), pOpt.passphrase.size(),
+						tranInfo.salt, tranInfo.saltLength, pOpt.keyIterationCount,
+						0, (unsigned char*)&realPassphrase[0], realPassphrase.size());
+	tranInfo.keyIterationCount = pOpt.keyIterationCount;
+	strncpy (tranInfo.cipherName, cipher.c_str(), sizeof(tranInfo.cipherName));
+	if (write (dataSocket, &tranInfo, sizeof(tranInfo)) != sizeof(tranInfo))
+		throw std::runtime_error ("Write init error: " + std::string(strerror(errno)));
+	Crypt::Encryption enc (cipher.c_str());
+	std::string encryptedBlock;
+	enc.setOutputBuffer(&encryptedBlock);
+	char iv[ivLen + 1];
+	while (true) {
+		const size_t r = fetchDataFromFile(dStream, buffer.data(), buffer.size());
+		if (r == 0)
+			break;
+		Crypt::generateRandomBytes(ivLen, iv);
+		enc.init (realPassphrase, std::string(iv, ivLen));
+		enc.feed (buffer.data(), r);
+		enc.finalize();
+		const uint32_t encBlockSize = encryptedBlock.size();
+		iovec iov[4] = {
+			{iv, ivLen},
+			{(void*)enc.tag(), tagLen},
+			{(void*)&encBlockSize, sizeof(encBlockSize)},
+			{(void*)encryptedBlock.data(), encryptedBlock.size()},
+		};
+		const size_t expected = encryptedBlock.size() + ivLen + tagLen + sizeof(encBlockSize);
+		ssize_t w = writev(dataSocket, iov, 4);
+		Debug("Sent: " + std::to_string(r));
+		if (w != expected)
+			throw std::runtime_error ("Write error: " + std::string(strerror(errno)));
+		totalByteCount += r;
+	}
+	Debug ("Total bytes sent: " + std::to_string(totalByteCount));
+}
+
 }
 
 int main (int argc, char **argv) {
+	using namespace JpsNet;
 	ProgOpts progOpt;
 	DataStream dStream;
 	try {
@@ -351,7 +223,10 @@ int main (int argc, char **argv) {
 		return 1;
 	}
 	try {
-		sendReceiveData (progOpt, dStream, dataSocket);
+		if (progOpt.op == OP_READ)
+			receiveData (progOpt, dStream, dataSocket);
+		else
+			sendData (progOpt, dStream, dataSocket);
 		close(dStream.socket);
 	} catch (const std::exception &e) {
 		std::cerr << "Operation error: " << e.what() << "\n";

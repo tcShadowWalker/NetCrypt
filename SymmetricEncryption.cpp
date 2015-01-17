@@ -282,5 +282,13 @@ std::string base64Decode (const void *mem, int length) {
 	throw std::logic_error ("base64Decode not implemented");
 }
 
+void keyDerivation (const char *pass, int passlen, const char *salt, int saltlen,
+	uint32_t keyDerivationCount, const char *cipher, unsigned char *out, int keylen)
+{
+	if (PKCS5_PBKDF2_HMAC (pass, passlen, (const unsigned char*)salt, saltlen,
+					   keyDerivationCount, getHashAlgo(cipher), keylen, out) != 1)
+		throw std::runtime_error ("PKCS5_PBKDF2_HMAC failed: " + std::string(getCryptError()));
+}
+
 }
 }

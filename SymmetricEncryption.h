@@ -95,6 +95,9 @@ void uc2sc (char *destStr, const unsigned char *sourceStr, int len);
 
 void generateHash (const char *in, size_t length, std::string *out, const char *algo = DEFAULT_HASH_ALGORITHM);
 
+void keyDerivation (const char *pass, int passlen, const char *salt, int saltlen,
+	uint32_t keyDerivationCount, const char *cipher, unsigned char *out, int keylen);
+
 inline void generateHash (const std::string &in, std::string *out, const char *algo = DEFAULT_HASH_ALGORITHM) {
 	generateHash (in.c_str(), in.size(), out, algo);
 }
