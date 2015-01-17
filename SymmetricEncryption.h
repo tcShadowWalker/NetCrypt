@@ -7,7 +7,7 @@
 struct evp_cipher_ctx_st;
 struct evp_cipher_st;
 
-namespace JpsNet {
+namespace NetCrypt {
 namespace Crypt {
 
 void InitCryptLibrary ();

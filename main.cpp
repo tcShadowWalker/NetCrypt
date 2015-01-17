@@ -1,4 +1,4 @@
-#include "JpsNet.h"
+#include "NetCrypt.h"
 #include "SymmetricEncryption.h"
 #include <iostream>
 #include <vector>
@@ -11,7 +11,7 @@
 #include <unistd.h>
 #include <assert.h>
 
-namespace JpsNet {
+namespace NetCrypt {
 
 bool DebugEnabled = false;
 
@@ -199,7 +199,7 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 }
 
 int main (int argc, char **argv) {
-	using namespace JpsNet;
+	using namespace NetCrypt;
 	ProgOpts progOpt;
 	DataStream dStream;
 	try {

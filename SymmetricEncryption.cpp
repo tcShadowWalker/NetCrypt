@@ -33,7 +33,7 @@ static const EVP_MD *getHashAlgo (const char *optional_cipher_name) {
 	return algo;
 }
 
-namespace JpsNet {
+namespace NetCrypt {
 namespace Crypt {
 
 const char *DEFAULT_CIPHER = "aes-256-gcm";

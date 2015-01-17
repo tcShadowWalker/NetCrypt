@@ -3,9 +3,9 @@
 #include <memory>
 #include <fstream>
 
-#define JPSNET_VERSION "0.1.2"
+#define NETCRYPT_VERSION "0.5.0"
 
-namespace JpsNet {
+namespace NetCrypt {
 
 extern bool DebugEnabled;
 
@@ -18,6 +18,7 @@ bool stdinIsTerminal ();
 bool stdoutIsTerminal ();
 bool stderrIsTerminal ();
 bool stdinInputAvailable ();
+void setTerminalEcho(bool enable);
 
 typedef std::unique_ptr<std::istream> IStreamPtr;
 typedef std::unique_ptr<std::ostream> OStreamPtr;
@@ -49,6 +50,7 @@ struct ProgOpts {
 	std::string passphrase;
 	bool generatePassphrase;
 	uint16_t listen_port;
+	bool serverMode;
 	int compression;
 	std::string infile;
 	std::string outfile;
