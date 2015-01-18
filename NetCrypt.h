@@ -3,11 +3,12 @@
 #include <memory>
 #include <fstream>
 
-#define NETCRYPT_VERSION "0.4.1"
+#define NETCRYPT_VERSION "0.4.2"
 
 namespace NetCrypt {
 
 extern int DebugEnabled;
+constexpr std::initializer_list<char> SecureMagicCookie {'N', 'E', 'T', 'C', 'R', 'Y', 'P', 'T', '_', 'S', 'E', 'C'};
 
 inline void Debug (const std::string &s) {
 	if (DebugEnabled)
@@ -17,7 +18,6 @@ inline void Debug (const std::string &s) {
 bool stdinIsTerminal ();
 bool stdoutIsTerminal ();
 bool stderrIsTerminal ();
-bool stdinInputAvailable ();
 void setTerminalEcho(bool enable);
 
 typedef std::unique_ptr<std::ifstream> IStreamPtr;
@@ -58,6 +58,7 @@ struct ProgOpts {
 	unsigned int blockSize;
 	unsigned int keyIterationCount;
 	bool showProgress = true;
+	bool useEncryption = true;
 	NetworkOpType netOp = NET_NONE;
 	OperationType op = OP_NONE;
 };

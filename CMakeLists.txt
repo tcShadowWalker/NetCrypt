@@ -1,7 +1,8 @@
 project(NetCrypt)
 cmake_minimum_required(VERSION 2.6)
 
-set(Sources main.cpp SymmetricEncryption.cpp main_options.cpp )
+set(Sources main.cpp SymmetricEncryption.cpp main_options.cpp
+	SecureTransmission.cpp InsecureTansmission.cpp )
 
 find_path(OPENSSL_INCLUDE_DIR openssl/evp.h)
 find_path(BOOST_INCLUDE_DIR boost/program_options.hpp)

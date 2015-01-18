@@ -83,8 +83,8 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		("once", po::bool_switch(&opt->acceptOnce)->default_value(false),
 			"Accept only one incomming connection and exit after transmission. "
 			"Only useful in listening mode. Automatically enabled when reading from stdin.")
-		("compression", po::value(&opt->compression) /*->value_name("algorithm")*/,
-			"Set compression algorithm")
+		//("compression", po::value(&opt->compression) /*->value_name("algorithm")*/,
+		//	"Set compression algorithm")
 		("cipher", po::value(&opt->preferedCipher)
 			->default_value("aes-256-gcm"), "Choice of encryption cipher.")
 		("digest", po::value(&opt->digest)
@@ -97,11 +97,9 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"Key iteration count for key derivation function PBKDF2")
 		("non-interactive", "Do not read password interactively from stdin, if not set in environment variable")
 		("no-progress", "Do not show progress and speed of transfer.\n"
-			"Otherwise, a progress meter is shown when used interactively"
-		)
-		// TODO
-		// ("no-encryption", po::bool_switch(&opt->noEncrypt),
-		//	 "Disable authenticated encryption. Insecure plaintext transmission.")
+			"Otherwise, a progress meter is shown when used interactively")
+		("no-encryption", "Disable authenticated encryption. "
+			 "Wholly insecure plaintext transmission. Only intended for testing purposes.")
 	;
 	po::options_description passphrase_desc("Passphrase options");
 	passphrase_desc.add_options()
@@ -139,6 +137,14 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		throw boost::program_options::error("You did not specify a mode of network mode. "
 			"Use either connect or listen mode.");
 	}
+	if (vm.count("no-encryption") > 0) {
+		if (!vm["cipher"].defaulted())
+			throw boost::program_options::error("You cannot disable encryption "
+				"when explicitly specifying a cipher");
+		std::cerr << "You are not using any encryption. This is insecure.\n"
+			"No authentication, confidentiality or integrity is ensured for the tansmission.\n";
+		opt->useEncryption = false;
+	}
 	if (opt->generatePassphrase) {
 		if (!stderrIsTerminal())
 			throw boost::program_options::error("To generate a passphrase, stderr must "
@@ -146,12 +152,14 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		if (opt->netOp != NET_LISTEN)
 			throw boost::program_options::error("Generating a passphrase is only useful "
 				"when waiting for incoming connections");
+		if (vm.count("no-encryption") > 0)
+			std::cerr << "Cmdline parameter --no-encryption ignored.\n";
 		std::string rawPwd = Crypt::generateRandomString(Crypt::KeySizeForCipher(opt->preferedCipher.c_str()));
 		opt->passphrase.resize(rawPwd.size() * 2);
 		Crypt::uc2sc(&opt->passphrase[0], (const unsigned char*)rawPwd.data(), rawPwd.size());
 		std::cerr << "Generated passphrase: " << opt->passphrase << std::endl;
 	}
-	if (opt->passphrase.empty()) {
+	if (opt->passphrase.empty() && vm.count("no-encryption") == 0) {
 		if (vm.count("non-interactive") == 0) {
 			if (!stdinIsTerminal() || !stderrIsTerminal())
 				throw boost::program_options::error("No password availabe and interactive "
