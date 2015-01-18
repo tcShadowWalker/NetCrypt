@@ -27,15 +27,6 @@ void setTerminalEcho(bool enable) {
 	(void) tcsetattr(STDIN_FILENO, TCSANOW, &tty);
 }
 
-bool stdinInputAvailable () {
-	struct pollfd fds;
-	int ret;
-	fds.fd = fileno(stdin);
-	fds.events = POLLIN;
-	ret = poll(&fds, 1, 0);
-	return (ret == 1);
-}
-
 ProgressTracker::ProgressTracker (size_t pTotal) {
 	mTotalSize = pTotal;
 	mTransferred = 0;
@@ -91,7 +82,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		("port,p", po::value(&opt->target_port), "Target port to connect to")
 		("once", po::bool_switch(&opt->acceptOnce)->default_value(false),
 			"Accept only one incomming connection and exit after transmission. "
-			"Only useful in listening mode")
+			"Only useful in listening mode. Automatically enabled when reading from stdin.")
 		("compression", po::value(&opt->compression) /*->value_name("algorithm")*/,
 			"Set compression algorithm")
 		("cipher", po::value(&opt->preferedCipher)
@@ -163,7 +154,8 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	if (opt->passphrase.empty()) {
 		if (vm.count("non-interactive") == 0) {
 			if (!stdinIsTerminal() || !stderrIsTerminal())
-				throw boost::program_options::error("Interactive passphrase entry is only allowed from a tty");
+				throw boost::program_options::error("No password availabe and interactive "
+					"passphrase entry is only allowed from a tty");
 			std::cerr << "Passphrase: ";
 			setTerminalEcho(false);
 			std::getline(std::cin, opt->passphrase);
@@ -194,9 +186,13 @@ void openInOutStream (DataStream *dstream, ProgOpts *opt) {
 		if (!dstream->inPtr->is_open())
 			throw std::runtime_error ("Could not open input file " + opt->infile);
 		dstream->in = dstream->inPtr.get();
-	} else if (stdinInputAvailable() && !stdinIsTerminal()) {
+	} else if (!stdinIsTerminal()) {
 		opt->op = OP_WRITE;
 		Debug("Input from Stdin");
+		if (!opt->acceptOnce && opt->netOp == NET_LISTEN) {
+			opt->acceptOnce = true;
+			Debug("Enabling 'acceptOnce' flag");
+		}
 		dstream->in = &std::cin;
 	}
 	if (opt->outfile != "") {
