@@ -127,7 +127,7 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	dec.setOutputBuffer(&decryptedBlock);
 	char header[HeaderSize];
 	do {
-		const ssize_t s = read (dataSocket, header, HeaderSize);
+		ssize_t s = read (dataSocket, header, HeaderSize);
 		if (s == 0 && tranInfo.totalSize == 0)
 			break;
 		if (s != HeaderSize)
@@ -140,8 +140,13 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		memcpy (&blockSize, &header[ivLen + tagLen], sizeof(blockSize));
 		if (blockSize > buffer.size())
 			throw std::runtime_error ("Received block size too large");
-		if (read (dataSocket, buffer.data(), blockSize) < blockSize)
-			throw std::runtime_error ("Read error: " + std::string(strerror(errno)));
+		size_t receivedPkgBytes = 0;
+		while (receivedPkgBytes < blockSize) {
+			s = read (dataSocket, &buffer[receivedPkgBytes], blockSize - receivedPkgBytes);
+			if (s <= 0)
+				throw std::runtime_error ("Read error: " + std::string((errno != 0) ? strerror(errno) : ""));
+			receivedPkgBytes += s;
+		}
 		if (DebugEnabled >= 3) {
 			std::string hash;
 			Crypt::generateHash(buffer.data(), blockSize, &hash);
@@ -209,14 +214,19 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		memcpy (&header[           0], iv, ivLen);
 		memcpy (&header[       ivLen], enc.tag(), tagLen);
 		memcpy (&header[ivLen+tagLen], &bsize, sizeof(bsize));
-		ssize_t w = write(dataSocket, outDataBlock.data(), outDataBlock.size());
 		if (DebugEnabled >= 3) {
 			std::string hash;
 			Crypt::generateHash(&outDataBlock[HeaderSize], bsize, &hash);
 			std::cerr << "Sent: " << r << " (Digest: " << hash << ")\n";
 		}
-		if (w != outDataBlock.size())
-			throw std::runtime_error ("Write error. " + std::string((errno != 0) ? strerror(errno) : ""));
+		size_t sentPkgBytes = 0;
+		while (sentPkgBytes < outDataBlock.size()) {
+			ssize_t w = write(dataSocket, &outDataBlock[sentPkgBytes],
+							  outDataBlock.size() - sentPkgBytes);
+			if (w <= 0)
+				throw std::runtime_error ("Write error. " + std::string((errno != 0) ? strerror(errno) : ""));
+			sentPkgBytes += w;
+		}
 		totalByteCount += r;
 	}
 	Debug ("Total bytes sent: " + std::to_string(totalByteCount));
