@@ -253,14 +253,18 @@ int main (int argc, char **argv) {
 			do {
 				socklen_t addr_len = sizeof(client_addr);
 				int dataSocket = accept (serverSock, (sockaddr*)&client_addr, &addr_len);
-				if (dataSocket == -1)
-					throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
-				
-				getnameinfo((const sockaddr*)&client_addr, addr_len,
-								addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
-				Debug(std::string("Connection from ") + addr_ascii.data());
-				sendOrReceive (progOpt, dStream, dataSocket);
-				close(dataSocket);
+				try {
+					if (dataSocket == -1)
+						throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
+					getnameinfo((const sockaddr*)&client_addr, addr_len,
+									addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
+					Debug(std::string("Connection from ") + addr_ascii.data());
+					sendOrReceive (progOpt, dStream, dataSocket);
+				} catch (const std::exception &e) {
+					std::cerr << "Connection error: " << e.what() << "\n";
+				}
+				if (dataSocket != -1)
+					close(dataSocket);
 				if (!progOpt.acceptOnce) {
 					dStream = DataStream();
 					determineInOut (&dStream, &progOpt);
