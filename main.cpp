@@ -128,11 +128,12 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	char header[HeaderSize];
 	ProgressTracker tracker (tranInfo.totalSize);
 	do {
-		ssize_t s = read (dataSocket, header, HeaderSize);
+		ssize_t s = recv (dataSocket, header, HeaderSize, MSG_WAITALL);
 		if (s == 0 && tranInfo.totalSize == 0)
 			break;
 		if (s != (ssize_t)HeaderSize)
-			throw std::runtime_error ("Read header error: " + std::string(strerror(errno)));
+			throw std::runtime_error ("Read header error: " + std::to_string(s) +
+				", " + std::string((errno != 0) ? strerror(errno) : ""));
 		if (DebugEnabled >= 3) {
 			std::cerr << "IV: " << printableString(std::string(&header[0], ivLen)) << "\n";
 			std::cerr << "Tag: " << printableString(std::string(&header[ivLen], tagLen)) << "\n";
@@ -145,7 +146,8 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		while (receivedPkgBytes < blockSize) {
 			s = read (dataSocket, &buffer[receivedPkgBytes], blockSize - receivedPkgBytes);
 			if (s <= 0)
-				throw std::runtime_error ("Read error: " + std::string((errno != 0) ? strerror(errno) : ""));
+				throw std::runtime_error ("Read error: " +
+					std::string((errno != 0) ? strerror(errno) : ""));
 			receivedPkgBytes += s;
 		}
 		if (DebugEnabled >= 3) {
@@ -292,7 +294,7 @@ int main (int argc, char **argv) {
 					Debug(std::string("Connection from ") + addr_ascii.data());
 					sendOrReceive (progOpt, dStream, dataSocket);
 				} catch (const std::exception &e) {
-					if (progOpt.showProgress) std::cerr << "\n";
+					if (progOpt.showProgress) ProgressTracker::clear();
 					std::cerr << "Connection error: " << e.what() << "\n";
 				}
 				if (dataSocket != -1)

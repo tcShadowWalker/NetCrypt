@@ -129,7 +129,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	if (opt->passphrase.empty()) {
 		if (!nonInteractive) {
 			if (!stdinIsTerminal() || !stderrIsTerminal())
-				throw boost::program_options::error("--interactive is only allowed from a tty");
+				throw boost::program_options::error("Interactive passphrase entry is only allowed from a tty");
 			std::cerr << "Passphrase: ";
 			setTerminalEcho(false);
 			std::getline(std::cin, opt->passphrase);

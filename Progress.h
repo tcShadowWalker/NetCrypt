@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <chrono>
 #include <stdio.h>
+#include <string.h>
 
 namespace NetCrypt {
 
@@ -19,6 +20,8 @@ public:
 	std::chrono::system_clock::duration duration () const {
 		return std::chrono::system_clock::now() - mStartTime;
 	}
+	
+	static void clear ();
 	
 	void printProgress ();
 	
@@ -45,13 +48,19 @@ void ProgressTracker::printProgress () {
 	const float totalTimeSec = millisec / 1000;
 	const float mbPerSecond = (mTransferred / totalTimeSec) / 1024 / 1024;
 	if (mTotalSize == 0) {
-		fprintf (stderr, "%.3f MB/s, Bytes transfered: %lu, Time passed: %.1f seconds\r",
+		fprintf (stderr, "%.3f MB/s, Bytes: %lu, Time: %.1f s\r",
 				mbPerSecond, mTransferred, totalTimeSec);
 	} else {
 		const float ratio = ((float)mTransferred) / mTotalSize;
-		fprintf (stderr, "%.1f%% done,  %.3f MB/s, Bytes transfered: %lu of %lu, Time passed: %.1f seconds\r",
+		fprintf (stderr, "%.1f%% done,  %.3f MB/s, Bytes: %lu / %lu, Time: %.1f s\r",
 				ratio * 100, mbPerSecond, mTransferred, mTotalSize, totalTimeSec);
 	}
+}
+
+void ProgressTracker::clear () {
+	char line[80];
+	memset (line, ' ', sizeof(line));
+	fprintf (stderr, "%.80s\n", line);
 }
 
 }
