@@ -15,7 +15,7 @@ void InitCryptLibrary ();
 extern const char *DEFAULT_CIPHER;
 extern const char *DEFAULT_HASH_ALGORITHM;
 
-const int GCM_TAG_LENGTH = 16;
+const unsigned int GCM_TAG_LENGTH = 16;
 
 enum InternalCryptState : char;
 
