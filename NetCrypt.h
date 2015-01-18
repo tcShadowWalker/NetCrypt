@@ -57,7 +57,7 @@ struct ProgOpts {
 	uint16_t target_port;
 	unsigned int blockSize;
 	unsigned int keyIterationCount;
-	bool showProgress;
+	bool showProgress = true;
 	NetworkOpType netOp = NET_NONE;
 	OperationType op = OP_NONE;
 };

@@ -34,7 +34,6 @@ bool stdinInputAvailable () {
 
 bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	namespace po = boost::program_options;
-	bool nonInteractive = false;
 	po::options_description general_desc("General");
 	general_desc.add_options()
 		("help", "Produce this help message")
@@ -70,10 +69,8 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"This only makes sense in 'listening' mode, and when stderr is connected to a TTY.")
 		("key-iterations", po::value(&opt->keyIterationCount)->default_value(32768),
 			"Key iteration count for key derivation function PBKDF2")
-		("non-interactive", po::bool_switch(&nonInteractive)->default_value(false),
-			"Do not read password interactively from stdin, if not set in environment variable")
-		("progress", po::bool_switch(&opt->showProgress)->default_value(false),
-			"Show progress and speed of transfer")
+		("non-interactive", "Do not read password interactively from stdin, if not set in environment variable")
+		("no-progress", "Show progress and speed of transfer")
 		// TODO
 		// ("no-encryption", po::bool_switch(&opt->noEncrypt),
 		//	 "Disable authenticated encryption. Insecure plaintext transmission.")
@@ -127,7 +124,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		std::cerr << "Generated passphrase: " << opt->passphrase << std::endl;
 	}
 	if (opt->passphrase.empty()) {
-		if (!nonInteractive) {
+		if (vm.count("non-interactive") == 0) {
 			if (!stdinIsTerminal() || !stderrIsTerminal())
 				throw boost::program_options::error("Interactive passphrase entry is only allowed from a tty");
 			std::cerr << "Passphrase: ";
@@ -139,6 +136,8 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		if (opt->passphrase.empty())
 			throw boost::program_options::error("Please specify a password using the environment variable NETCRYPT_PASSPHRASE");
 	}
+	if (vm.count("no-progress") > 0)
+		opt->showProgress = false;
 	// Check that cipher name is valid
 	(void)Crypt::KeySizeForCipher(opt->preferedCipher.c_str());
 	return true;
