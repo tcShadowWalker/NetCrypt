@@ -142,7 +142,7 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		if (DebugEnabled >= 3) {
 			std::string hash;
 			Crypt::generateHash(buffer.data(), buffer.size(), &hash);
-			std::cerr << "Read: " << blockSize << " (Digest: " << hash << ")\n";
+			std::cerr << "Read raw: " << buffer.size() << ", payload: " << blockSize << " (Digest: " << hash << ")\n";
 		}
 		dec.init (realPassphrase, std::string(buffer.data(), ivLen),
 					std::string(buffer.data() + ivLen, tagLen));
