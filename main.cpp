@@ -81,6 +81,7 @@ struct TransmissionHeader {
 	uint8_t saltLength;
 	uint8_t _padding1_ = 0;
 	uint64_t totalSize;
+	uint32_t initialBlockSize;
 	char salt[30];
 	char cipherName[30]; // Null-terminated cipher name
 };
@@ -115,11 +116,12 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 						0, (unsigned char*)&realPassphrase[0], realPassphrase.size());
 	const size_t ivLen = Crypt::IvSizeForCipher(usedCipher.c_str()),
 				tagLen = Crypt::GCM_TAG_LENGTH;
-	Debug("IV length: " + std::to_string(ivLen) + ", tag length: " + std::to_string(tagLen));
+	Debug("IV length: " + std::to_string(ivLen) + ", tag length: "
+		+ std::to_string(tagLen) + ", block size: " + std::to_string(tranInfo.initialBlockSize));
 	if (DebugEnabled >= 2)
 		printDebugCryptoParameters (tranInfo, realPassphrase);
 	const size_t HeaderSize = ivLen + tagLen + sizeof(uint32_t);
-	uint32_t blockSize = pOpt.blockSize;
+	uint32_t blockSize = tranInfo.initialBlockSize;
 	std::vector<char> buffer ( blockSize + HeaderSize );
 	Crypt::Decryption dec (usedCipher.c_str());
 	std::string decryptedBlock;
