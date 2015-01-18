@@ -72,9 +72,9 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"Key iteration count for key derivation function PBKDF2")
 		("non-interactive", po::bool_switch(&nonInteractive)->default_value(false),
 			"Do not read password interactively from stdin, if not set in environment variable")
+		("progress", po::bool_switch(&opt->showProgress)->default_value(false),
+			"Show progress and speed of transfer")
 		// TODO
-		/*("progress", po::bool_switch(&opt->showProgress)->default_value(false),
-			"Show progress and speed of transfer")*/
 		// ("no-encryption", po::bool_switch(&opt->noEncrypt),
 		//	 "Disable authenticated encryption. Insecure plaintext transmission.")
 	;

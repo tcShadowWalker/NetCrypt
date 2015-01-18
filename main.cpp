@@ -1,4 +1,5 @@
 #include "NetCrypt.h"
+#include "Progress.h"
 #include "SymmetricEncryption.h"
 #include <iostream>
 #include <vector>
@@ -103,7 +104,6 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	assert (dataSocket != -1);
 	assert (pOpt.op == OP_READ);
 	assert (dStream.out != nullptr);
-	size_t totalByteCount = 0;
 	TransmissionHeader tranInfo;
 	if (read (dataSocket, &tranInfo, sizeof(tranInfo)) != sizeof(tranInfo))
 		throw std::runtime_error ("Read init error: " + std::string(strerror(errno)));
@@ -126,11 +126,12 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	std::string decryptedBlock;
 	dec.setOutputBuffer(&decryptedBlock);
 	char header[HeaderSize];
+	ProgressTracker tracker (tranInfo.totalSize);
 	do {
 		ssize_t s = read (dataSocket, header, HeaderSize);
 		if (s == 0 && tranInfo.totalSize == 0)
 			break;
-		if (s != HeaderSize)
+		if (s != (ssize_t)HeaderSize)
 			throw std::runtime_error ("Read header error: " + std::string(strerror(errno)));
 		if (DebugEnabled >= 3) {
 			std::cerr << "IV: " << printableString(std::string(&header[0], ivLen)) << "\n";
@@ -161,17 +162,21 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 			throw std::runtime_error ("Decryption failed. Probably the given "
 				"passphrase does not match the one used for encryption");
 		}
-		totalByteCount += blockSize;
+		tracker.add(blockSize);
+		if (pOpt.showProgress) {
+			tracker.printProgress();
+		}
 		writeDataToFile (dStream, decryptedBlock.data(), decryptedBlock.size());
-	} while (totalByteCount < tranInfo.totalSize);
-	Debug ("Total bytes read: " + std::to_string(totalByteCount));
+	} while (tracker.transferred() < tranInfo.totalSize || tranInfo.totalSize == 0);
+	if (pOpt.showProgress)
+		std::cerr << "\n";
+	Debug ("Total bytes read: " + std::to_string(tracker.totalSize()));
 }
 
 void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	assert (pOpt.op == OP_WRITE);
 	assert (dataSocket != -1);
 	assert (dStream.in != nullptr);
-	size_t totalByteCount = 0;
 	const std::string cipher = pOpt.preferedCipher;
 	const size_t ivLen = Crypt::IvSizeForCipher(cipher.c_str()),
 				tagLen = Crypt::GCM_TAG_LENGTH;
@@ -195,6 +200,7 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	std::string outDataBlock;
 	enc.setOutputBuffer(&outDataBlock);
 	char iv[ivLen + 1];
+	ProgressTracker tracker (tranInfo.totalSize);
 	const size_t HeaderSize = ivLen + tagLen + sizeof(uint32_t);
 	while (true) {
 		const size_t r = fetchDataFromFile(dStream, buffer.data(), buffer.size());
@@ -210,13 +216,13 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 			std::cerr << "Tag: " << printableString(std::string(enc.tag(), tagLen)) << "\n";
 		}
 		char *header = &outDataBlock[0];
-		const uint32_t bsize = outDataBlock.size() - HeaderSize;
+		const uint32_t blockSize = outDataBlock.size() - HeaderSize;
 		memcpy (&header[           0], iv, ivLen);
 		memcpy (&header[       ivLen], enc.tag(), tagLen);
-		memcpy (&header[ivLen+tagLen], &bsize, sizeof(bsize));
+		memcpy (&header[ivLen+tagLen], &blockSize, sizeof(blockSize));
 		if (DebugEnabled >= 3) {
 			std::string hash;
-			Crypt::generateHash(&outDataBlock[HeaderSize], bsize, &hash);
+			Crypt::generateHash(&outDataBlock[HeaderSize], blockSize, &hash);
 			std::cerr << "Sent: " << r << " (Digest: " << hash << ")\n";
 		}
 		size_t sentPkgBytes = 0;
@@ -227,9 +233,13 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 				throw std::runtime_error ("Write error. " + std::string((errno != 0) ? strerror(errno) : ""));
 			sentPkgBytes += w;
 		}
-		totalByteCount += r;
+		tracker.add(blockSize);
+		if (pOpt.showProgress)
+			tracker.printProgress();
 	}
-	Debug ("Total bytes sent: " + std::to_string(totalByteCount));
+	if (pOpt.showProgress)
+		std::cerr << "\n";
+	Debug ("Total bytes sent: " + std::to_string(tracker.totalSize()));
 }
 
 void sendOrReceive (const ProgOpts &progOpt, DataStream &dStream, int dataSocket) {
@@ -282,6 +292,7 @@ int main (int argc, char **argv) {
 					Debug(std::string("Connection from ") + addr_ascii.data());
 					sendOrReceive (progOpt, dStream, dataSocket);
 				} catch (const std::exception &e) {
+					if (progOpt.showProgress) std::cerr << "\n";
 					std::cerr << "Connection error: " << e.what() << "\n";
 				}
 				if (dataSocket != -1)

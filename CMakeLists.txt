@@ -12,5 +12,5 @@ find_library(CRYPTO_LIBRARIES crypto REQUIRED)
 include_directories( ${OPENSSL_INCLUDE_DIR} ${BOOST_INCLUDE_DIR} )
 
 add_executable(netcrypt ${Sources} )
-target_compile_options(netcrypt PUBLIC -std=c++11)
+target_compile_options(netcrypt PUBLIC -std=c++11 -Wall )
 target_link_libraries(netcrypt ${BOOST_LIBRARIES} ${CRYPTO_LIBRARIES} )
