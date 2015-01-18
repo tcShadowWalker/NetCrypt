@@ -3,10 +3,14 @@
 #include <boost/program_options.hpp>
 #include <unistd.h>
 #include <iostream>
+#include <string.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <termios.h>
+#include "Progress.h"
+#include <sys/ioctl.h>
+#include <stdio.h>
 
 namespace NetCrypt {
 
@@ -30,6 +34,37 @@ bool stdinInputAvailable () {
 	fds.events = POLLIN;
 	ret = poll(&fds, 1, 0);
 	return (ret == 1);
+}
+
+ProgressTracker::ProgressTracker (size_t pTotal) {
+	mTotalSize = pTotal;
+	mTransferred = 0;
+	mStartTime = std::chrono::system_clock::now();
+}
+
+void ProgressTracker::printProgress () {
+	using namespace std::chrono;
+	const system_clock::time_point last = system_clock::now();
+	const milliseconds::rep millisec = duration_cast<milliseconds>(last - mStartTime).count();
+	const float totalTimeSec = millisec / 1000;
+	const float mbPerSecond = (mTransferred / totalTimeSec) / 1024 / 1024;
+	if (mTotalSize == 0) {
+		fprintf (stderr, "%.3f MB/s, Bytes: %lu, Time: %.1f s\r",
+				mbPerSecond, mTransferred, totalTimeSec);
+	} else {
+		const float ratio = ((float)mTransferred) / mTotalSize;
+		fprintf (stderr, "%.1f%% done,  %.3f MB/s, Bytes: %lu / %lu, Time: %.1f s\r",
+				ratio * 100, mbPerSecond, mTransferred, mTotalSize, totalTimeSec);
+	}
+}
+
+void ProgressTracker::clear () {
+	struct winsize w;
+    ioctl(STDERR_FILENO, TIOCGWINSZ, &w);
+	char line[w.ws_col + 1];
+	memset (line, ' ', w.ws_col);
+	line[w.ws_col] = '\0';
+	fprintf (stderr, "%s\n", line);
 }
 
 bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
@@ -70,7 +105,9 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		("key-iterations", po::value(&opt->keyIterationCount)->default_value(32768),
 			"Key iteration count for key derivation function PBKDF2")
 		("non-interactive", "Do not read password interactively from stdin, if not set in environment variable")
-		("no-progress", "Show progress and speed of transfer")
+		("no-progress", "Do not show progress and speed of transfer.\n"
+			"Otherwise, a progress meter is shown when used interactively"
+		)
 		// TODO
 		// ("no-encryption", po::bool_switch(&opt->noEncrypt),
 		//	 "Disable authenticated encryption. Insecure plaintext transmission.")
