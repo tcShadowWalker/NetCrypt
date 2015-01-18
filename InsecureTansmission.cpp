@@ -38,7 +38,7 @@ void receiveUnencryptedData (const ProgOpts &pOpt, const DataStream &dStream, in
 	ProgressTracker tracker (0);
 	{
 		ssize_t s = recv(dataSocket, &buffer[0], SecureMagicCookie.size(), MSG_PEEK);
-		if (s == SecureMagicCookie.size() && strncmp (&buffer[0],
+		if ((size_t)s == SecureMagicCookie.size() && strncmp (&buffer[0],
 			SecureMagicCookie.begin(), SecureMagicCookie.size()) == 0)
 		{
 			throw std::runtime_error ("This looks like an encrypted transmission. "

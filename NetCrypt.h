@@ -21,7 +21,7 @@
 #include <memory>
 #include <fstream>
 
-#define NETCRYPT_VERSION "0.4.5"
+#define NETCRYPT_VERSION "0.4.6"
 
 namespace NetCrypt {
 
