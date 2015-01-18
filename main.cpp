@@ -126,9 +126,9 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	std::string decryptedBlock;
 	dec.setOutputBuffer(&decryptedBlock);
 	char header[HeaderSize];
-	while (true) {
+	do {
 		const ssize_t s = read (dataSocket, header, HeaderSize);
-		if (s == 0 && (tranInfo.totalSize == 0 || totalByteCount == tranInfo.totalSize))
+		if (s == 0 && tranInfo.totalSize == 0)
 			break;
 		if (s != HeaderSize)
 			throw std::runtime_error ("Read header error: " + std::string(strerror(errno)));
@@ -144,8 +144,8 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 			throw std::runtime_error ("Read error: " + std::string(strerror(errno)));
 		if (DebugEnabled >= 3) {
 			std::string hash;
-			Crypt::generateHash(buffer.data(), buffer.size(), &hash);
-			std::cerr << "Read raw: " << buffer.size() << ", payload: " << blockSize << " (Digest: " << hash << ")\n";
+			Crypt::generateHash(buffer.data(), blockSize, &hash);
+			std::cerr << "Read payload: " << blockSize << " (Digest: " << hash << ")\n";
 		}
 		dec.init (realPassphrase, std::string(&header[0], ivLen),
 					std::string(&header[ivLen], tagLen));
@@ -156,9 +156,9 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 			throw std::runtime_error ("Decryption failed. Probably the given "
 				"passphrase does not match the one used for encryption");
 		}
-		totalByteCount += s;
+		totalByteCount += blockSize;
 		writeDataToFile (dStream, decryptedBlock.data(), decryptedBlock.size());
-	}
+	} while (totalByteCount < tranInfo.totalSize);
 	Debug ("Total bytes read: " + std::to_string(totalByteCount));
 }
 
@@ -212,7 +212,7 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		ssize_t w = write(dataSocket, outDataBlock.data(), outDataBlock.size());
 		if (DebugEnabled >= 3) {
 			std::string hash;
-			Crypt::generateHash(&outDataBlock[HeaderSize], &hash);
+			Crypt::generateHash(&outDataBlock[HeaderSize], bsize, &hash);
 			std::cerr << "Sent: " << r << " (Digest: " << hash << ")\n";
 		}
 		if (w != outDataBlock.size())

@@ -34,7 +34,7 @@ bool stdinInputAvailable () {
 
 bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	namespace po = boost::program_options;
-	bool interactive = false;
+	bool nonInteractive = false;
 	po::options_description general_desc("General");
 	general_desc.add_options()
 		("help", "Produce this help message")
@@ -70,8 +70,8 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"This only makes sense in 'listening' mode, and when stderr is connected to a TTY.")
 		("key-iterations", po::value(&opt->keyIterationCount)->default_value(32768),
 			"Key iteration count for key derivation function PBKDF2")
-		("interactive", po::bool_switch(&interactive)->default_value(false),
-			"Read password interactively from stdin, if not set in environment variable")
+		("non-interactive", po::bool_switch(&nonInteractive)->default_value(false),
+			"Do not read password interactively from stdin, if not set in environment variable")
 		// TODO
 		/*("progress", po::bool_switch(&opt->showProgress)->default_value(false),
 			"Show progress and speed of transfer")*/
@@ -127,7 +127,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		std::cerr << "Generated passphrase: " << opt->passphrase << std::endl;
 	}
 	if (opt->passphrase.empty()) {
-		if (interactive) {
+		if (!nonInteractive) {
 			if (!stdinIsTerminal() || !stderrIsTerminal())
 				throw boost::program_options::error("--interactive is only allowed from a tty");
 			std::cerr << "Passphrase: ";
