@@ -139,15 +139,14 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		if (blockSize > buffer.size())
 			throw std::runtime_error ("Received block size too large");
 		dec.feed(buffer.data() + ivLen + tagLen + sizeof(blockSize), blockSize);
+		Debug("Read: " + std::to_string(blockSize));
 		try {
 			dec.finalize();
 		} catch (const std::exception &e) {
-			if (DebugEnabled)
-				Debug(e.what());
 			throw std::runtime_error ("Decryption failed. Probably the given "
 				"passphrase does not match the one used for encryption");
 		}
-		Debug("Read: " + std::to_string(decryptedBlock.size()));
+		//Debug("Read: " + std::to_string(decryptedBlock.size()));
 		totalByteCount += s;
 		writeDataToFile (dStream, decryptedBlock.data(), decryptedBlock.size());
 	}
@@ -251,15 +250,22 @@ int main (int argc, char **argv) {
 		std::array<char, 50> addr_ascii;
 		if (progOpt.netOp == NET_LISTEN) {
 			struct sockaddr_storage client_addr;
-			socklen_t addr_len = sizeof(client_addr);
-			int dataSocket = accept (serverSock, (sockaddr*)&client_addr, &addr_len);
-			if (dataSocket == -1)
-				throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
-			getnameinfo((const sockaddr*)&client_addr, addr_len,
-							addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
-			Debug(std::string("Connection from ") + addr_ascii.data());
-			sendOrReceive (progOpt, dStream, dataSocket);
-			close(dataSocket);
+			do {
+				socklen_t addr_len = sizeof(client_addr);
+				int dataSocket = accept (serverSock, (sockaddr*)&client_addr, &addr_len);
+				if (dataSocket == -1)
+					throw std::runtime_error ("Failed to accept connection: " + std::string(strerror(errno)));
+				
+				getnameinfo((const sockaddr*)&client_addr, addr_len,
+								addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
+				Debug(std::string("Connection from ") + addr_ascii.data());
+				sendOrReceive (progOpt, dStream, dataSocket);
+				close(dataSocket);
+				if (!progOpt.acceptOnce) {
+					dStream = DataStream();
+					determineInOut (&dStream, &progOpt);
+				}
+			} while (progOpt.acceptOnce == false);
 		} else if (progOpt.netOp == NET_CONNECT) {
 			sendOrReceive (progOpt, dStream, serverSock);
 		}

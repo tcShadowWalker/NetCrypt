@@ -167,6 +167,7 @@ void determineInOut (DataStream *dstream, ProgOpts *opt) {
 		if (opt->op != OP_NONE)
 			throw boost::program_options::error("Cannot perform both input and output in one operation");
 		opt->op = OP_READ;
+		opt->acceptOnce = true; // this option is useless in read mode.
 		Debug("Output to file " + opt->outfile);
 		dstream->outPtr.reset(new std::ofstream (opt->outfile, std::ios::out));
 		if (!dstream->outPtr->is_open())
