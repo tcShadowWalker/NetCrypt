@@ -121,32 +121,35 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	if (DebugEnabled >= 2)
 		printDebugCryptoParameters (tranInfo, realPassphrase);
 	const size_t HeaderSize = ivLen + tagLen + sizeof(uint32_t);
-	std::vector<char> buffer ( tranInfo.initialBlockSize + HeaderSize );
+	std::vector<char> buffer ( tranInfo.initialBlockSize );
 	Crypt::Decryption dec (usedCipher.c_str());
 	std::string decryptedBlock;
 	dec.setOutputBuffer(&decryptedBlock);
+	char header[HeaderSize];
 	while (true) {
-		const ssize_t s = read (dataSocket, buffer.data(), buffer.size());
-		if (s == 0)
+		const ssize_t s = read (dataSocket, header, HeaderSize);
+		if (s == 0 && (tranInfo.totalSize == 0 || totalByteCount == tranInfo.totalSize))
 			break;
-		else if (s < 0)
-			throw std::runtime_error ("Read error: " + std::string(strerror(errno)));
+		if (s != HeaderSize)
+			throw std::runtime_error ("Read header error: " + std::string(strerror(errno)));
 		if (DebugEnabled >= 3) {
-			std::cerr << "IV: " << printableString(std::string(buffer.data(), ivLen)) << "\n";
-			std::cerr << "Tag: " << printableString(std::string(buffer.data() + ivLen, tagLen)) << "\n";
+			std::cerr << "IV: " << printableString(std::string(&header[0], ivLen)) << "\n";
+			std::cerr << "Tag: " << printableString(std::string(&header[ivLen], tagLen)) << "\n";
 		}
 		uint32_t blockSize;
-		memcpy (&blockSize, buffer.data() + ivLen + tagLen, sizeof(blockSize));
-		if (blockSize > buffer.size() - HeaderSize)
+		memcpy (&blockSize, &header[ivLen + tagLen], sizeof(blockSize));
+		if (blockSize > buffer.size())
 			throw std::runtime_error ("Received block size too large");
+		if (read (dataSocket, buffer.data(), blockSize) < blockSize)
+			throw std::runtime_error ("Read error: " + std::string(strerror(errno)));
 		if (DebugEnabled >= 3) {
 			std::string hash;
 			Crypt::generateHash(buffer.data(), buffer.size(), &hash);
 			std::cerr << "Read raw: " << buffer.size() << ", payload: " << blockSize << " (Digest: " << hash << ")\n";
 		}
-		dec.init (realPassphrase, std::string(buffer.data(), ivLen),
-					std::string(buffer.data() + ivLen, tagLen));
-		dec.feed(&buffer[HeaderSize], blockSize);
+		dec.init (realPassphrase, std::string(&header[0], ivLen),
+					std::string(&header[ivLen], tagLen));
+		dec.feed(buffer.data(), blockSize);
 		try {
 			dec.finalize();
 		} catch (const std::exception &e) {
@@ -184,8 +187,8 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	if (write (dataSocket, &tranInfo, sizeof(tranInfo)) != sizeof(tranInfo))
 		throw std::runtime_error ("Write init error: " + std::string(strerror(errno)));
 	Crypt::Encryption enc (cipher.c_str());
-	std::string outDataBlack;
-	enc.setOutputBuffer(&outDataBlack);
+	std::string outDataBlock;
+	enc.setOutputBuffer(&outDataBlock);
 	char iv[ivLen + 1];
 	const size_t HeaderSize = ivLen + tagLen + sizeof(uint32_t);
 	while (true) {
@@ -194,25 +197,25 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 			break;
 		Crypt::generateRandomBytes(ivLen, iv);
 		enc.init (realPassphrase, std::string(iv, ivLen));
-		outDataBlack.resize(HeaderSize);
+		outDataBlock.resize(HeaderSize);
 		enc.feed (buffer.data(), r);
 		enc.finalize();
 		if (DebugEnabled >= 3) {
 			std::cerr << "IV: " << printableString(std::string(iv, ivLen)) << "\n";
 			std::cerr << "Tag: " << printableString(std::string(enc.tag(), tagLen)) << "\n";
 		}
-		char *header = &outDataBlack[0];
-		const uint32_t bsize = outDataBlack.size() - HeaderSize;
+		char *header = &outDataBlock[0];
+		const uint32_t bsize = outDataBlock.size() - HeaderSize;
 		memcpy (&header[           0], iv, ivLen);
 		memcpy (&header[       ivLen], enc.tag(), tagLen);
 		memcpy (&header[ivLen+tagLen], &bsize, sizeof(bsize));
-		ssize_t w = write(dataSocket, outDataBlack.data(), outDataBlack.size());
+		ssize_t w = write(dataSocket, outDataBlock.data(), outDataBlock.size());
 		if (DebugEnabled >= 3) {
 			std::string hash;
-			Crypt::generateHash(outDataBlack, &hash);
+			Crypt::generateHash(&outDataBlock[HeaderSize], &hash);
 			std::cerr << "Sent: " << r << " (Digest: " << hash << ")\n";
 		}
-		if (w != outDataBlack.size())
+		if (w != outDataBlock.size())
 			throw std::runtime_error ("Write error. " + std::string((errno != 0) ? strerror(errno) : ""));
 		totalByteCount += r;
 	}
