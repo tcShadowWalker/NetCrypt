@@ -144,7 +144,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	return true;
 }
 
-void determineInOut (DataStream *dstream, ProgOpts *opt) {
+void openInOutStream (DataStream *dstream, ProgOpts *opt) {
 	if (opt->infile != "") {
 		opt->op = OP_WRITE;
 		Debug("Input from file " + opt->infile);

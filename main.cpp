@@ -17,7 +17,7 @@ int DebugEnabled = 0;
 
 bool evaluateOptions (int argc, char **argv, ProgOpts *opt);
 
-void determineInOut (DataStream *dstream, ProgOpts *opt);
+void openInOutStream (DataStream *dstream, ProgOpts *opt);
 
 void openNetDevice (const ProgOpts &pOpt, DataStream &dStream, int *dataSocket) {
 	std::array<char,50> addr_ascii;
@@ -118,8 +118,9 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	Debug("IV length: " + std::to_string(ivLen) + ", tag length: " + std::to_string(tagLen));
 	if (DebugEnabled >= 2)
 		printDebugCryptoParameters (tranInfo, realPassphrase);
+	const size_t HeaderSize = ivLen + tagLen + sizeof(uint32_t);
 	uint32_t blockSize = pOpt.blockSize;
-	std::vector<char> buffer ( blockSize + sizeof(blockSize) + ivLen + tagLen );
+	std::vector<char> buffer ( blockSize + HeaderSize );
 	Crypt::Decryption dec (usedCipher.c_str());
 	std::string decryptedBlock;
 	dec.setOutputBuffer(&decryptedBlock);
@@ -136,17 +137,20 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 		dec.init (realPassphrase, std::string(buffer.data(), ivLen),
 					std::string(buffer.data() + ivLen, tagLen));
 		memcpy (&blockSize, buffer.data() + ivLen + tagLen, sizeof(blockSize));
-		if (blockSize > buffer.size())
+		if (blockSize > buffer.size() - HeaderSize)
 			throw std::runtime_error ("Received block size too large");
-		dec.feed(buffer.data() + ivLen + tagLen + sizeof(blockSize), blockSize);
-		Debug("Read: " + std::to_string(blockSize));
+		dec.feed(&buffer[HeaderSize], blockSize);
+		if (DebugEnabled >= 3) {
+			std::string hash;
+			Crypt::generateHash(buffer.data(), buffer.size(), &hash);
+			std::cerr << "Read: " << blockSize << " (Digest: " << hash << ")\n";
+		}
 		try {
 			dec.finalize();
 		} catch (const std::exception &e) {
 			throw std::runtime_error ("Decryption failed. Probably the given "
 				"passphrase does not match the one used for encryption");
 		}
-		//Debug("Read: " + std::to_string(decryptedBlock.size()));
 		totalByteCount += s;
 		writeDataToFile (dStream, decryptedBlock.data(), decryptedBlock.size());
 	}
@@ -177,34 +181,35 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	if (write (dataSocket, &tranInfo, sizeof(tranInfo)) != sizeof(tranInfo))
 		throw std::runtime_error ("Write init error: " + std::string(strerror(errno)));
 	Crypt::Encryption enc (cipher.c_str());
-	std::string encryptedBlock;
-	enc.setOutputBuffer(&encryptedBlock);
+	std::string outDataBlack;
+	enc.setOutputBuffer(&outDataBlack);
 	char iv[ivLen + 1];
+	const size_t HeaderSize = ivLen + tagLen + sizeof(uint32_t);
 	while (true) {
 		const size_t r = fetchDataFromFile(dStream, buffer.data(), buffer.size());
 		if (r == 0)
 			break;
 		Crypt::generateRandomBytes(ivLen, iv);
 		enc.init (realPassphrase, std::string(iv, ivLen));
+		outDataBlack.resize(HeaderSize);
 		enc.feed (buffer.data(), r);
 		enc.finalize();
 		if (DebugEnabled >= 3) {
 			std::cerr << "IV: " << printableString(std::string(iv, ivLen)) << "\n";
 			std::cerr << "Tag: " << printableString(std::string(enc.tag(), tagLen)) << "\n";
 		}
-		const size_t headerSize = ivLen + tagLen + sizeof(uint32_t);
-		unsigned char header[headerSize];
-		memcpy (&header[    0], iv, ivLen);
-		memcpy (&header[ivLen], enc.tag(), tagLen);
-		*((uint32_t *)&header[ivLen+tagLen]) = (uint32_t)encryptedBlock.size();
-		iovec iov[2] = {
-			{header, sizeof(header)},
-			{(void*)encryptedBlock.data(), encryptedBlock.size()},
-		};
-		const size_t expected = headerSize + encryptedBlock.size();
-		ssize_t w = writev(dataSocket, iov, 2);
-		Debug("Sent: " + std::to_string(r));
-		if (w != expected)
+		char *header = &outDataBlack[0];
+		const uint32_t bsize = outDataBlack.size() - HeaderSize;
+		memcpy (&header[           0], iv, ivLen);
+		memcpy (&header[       ivLen], enc.tag(), tagLen);
+		memcpy (&header[ivLen+tagLen], &bsize, sizeof(bsize));
+		ssize_t w = write(dataSocket, outDataBlack.data(), outDataBlack.size());
+		if (DebugEnabled >= 3) {
+			std::string hash;
+			Crypt::generateHash(outDataBlack, &hash);
+			std::cerr << "Sent: " << r << " (Digest: " << hash << ")\n";
+		}
+		if (w != outDataBlack.size())
 			throw std::runtime_error ("Write error. " + std::string((errno != 0) ? strerror(errno) : ""));
 		totalByteCount += r;
 	}
@@ -231,7 +236,7 @@ int main (int argc, char **argv) {
 		Crypt::InitCryptLibrary();
 		assert (progOpt.netOp != NET_NONE);
 		Debug(std::string("Network mode: ") + ( (progOpt.netOp == NET_LISTEN) ? "Listen" : "Connect" ));
-		determineInOut (&dStream, &progOpt);
+		openInOutStream (&dStream, &progOpt);
 		assert (progOpt.op != OP_NONE);
 		Debug(std::string("Network operation: ") + ( (progOpt.op == OP_READ) ? "Read" : "Write" ));
 	} catch (const std::exception &e) {
@@ -267,7 +272,7 @@ int main (int argc, char **argv) {
 					close(dataSocket);
 				if (!progOpt.acceptOnce) {
 					dStream = DataStream();
-					determineInOut (&dStream, &progOpt);
+					openInOutStream (&dStream, &progOpt);
 				}
 			} while (progOpt.acceptOnce == false);
 		} else if (progOpt.netOp == NET_CONNECT) {
