@@ -121,8 +121,7 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 	if (DebugEnabled >= 2)
 		printDebugCryptoParameters (tranInfo, realPassphrase);
 	const size_t HeaderSize = ivLen + tagLen + sizeof(uint32_t);
-	uint32_t blockSize = tranInfo.initialBlockSize;
-	std::vector<char> buffer ( blockSize + HeaderSize );
+	std::vector<char> buffer ( tranInfo.initialBlockSize + HeaderSize );
 	Crypt::Decryption dec (usedCipher.c_str());
 	std::string decryptedBlock;
 	dec.setOutputBuffer(&decryptedBlock);
@@ -136,6 +135,7 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 			std::cerr << "IV: " << printableString(std::string(buffer.data(), ivLen)) << "\n";
 			std::cerr << "Tag: " << printableString(std::string(buffer.data() + ivLen, tagLen)) << "\n";
 		}
+		uint32_t blockSize;
 		memcpy (&blockSize, buffer.data() + ivLen + tagLen, sizeof(blockSize));
 		if (blockSize > buffer.size() - HeaderSize)
 			throw std::runtime_error ("Received block size too large");
@@ -177,6 +177,7 @@ void sendData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 						0, (unsigned char*)&realPassphrase[0], realPassphrase.size());
 	tranInfo.keyIterationCount = pOpt.keyIterationCount;
 	tranInfo.totalSize = dStream.totalSize;
+	tranInfo.initialBlockSize = pOpt.blockSize;
 	strncpy (tranInfo.cipherName, cipher.c_str(), sizeof(tranInfo.cipherName));
 	if (DebugEnabled >= 2)
 		printDebugCryptoParameters (tranInfo, realPassphrase);
