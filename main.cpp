@@ -134,17 +134,17 @@ void receiveData (const ProgOpts &pOpt, DataStream &dStream, int dataSocket) {
 			std::cerr << "IV: " << printableString(std::string(buffer.data(), ivLen)) << "\n";
 			std::cerr << "Tag: " << printableString(std::string(buffer.data() + ivLen, tagLen)) << "\n";
 		}
-		dec.init (realPassphrase, std::string(buffer.data(), ivLen),
-					std::string(buffer.data() + ivLen, tagLen));
 		memcpy (&blockSize, buffer.data() + ivLen + tagLen, sizeof(blockSize));
 		if (blockSize > buffer.size() - HeaderSize)
 			throw std::runtime_error ("Received block size too large");
-		dec.feed(&buffer[HeaderSize], blockSize);
 		if (DebugEnabled >= 3) {
 			std::string hash;
 			Crypt::generateHash(buffer.data(), buffer.size(), &hash);
 			std::cerr << "Read: " << blockSize << " (Digest: " << hash << ")\n";
 		}
+		dec.init (realPassphrase, std::string(buffer.data(), ivLen),
+					std::string(buffer.data() + ivLen, tagLen));
+		dec.feed(&buffer[HeaderSize], blockSize);
 		try {
 			dec.finalize();
 		} catch (const std::exception &e) {
