@@ -1,3 +1,20 @@
+/*
+    Copyright (C) 2015 Jan-Philip Stecker.
+    This file is part of NetCrypt.
+
+    NetCrypt is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    NetCrypt is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with NetCrypt.  If not, see <http://www.gnu.org/licenses/>.
+*/
 #include "NetCrypt.h"
 #include "SymmetricEncryption.h"
 #include <boost/program_options.hpp>
@@ -118,7 +135,9 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"Basic usages:\n" << "export NETCRYPT_PASSPHRASE=\"yourPassphrase\"\n"
 			<< "Listen for inbound:\t" << exe << " -l port -i input_file.txt\n"
 			<< "Connect to remote:\t" << exe << " -h target_host -p port -o output.txt\n"
-			<< cmdline_options << "\n";
+			<< cmdline_options << "\n"
+			<< "Copyright (C) 2015 Jan-Philip Stecker.\n"
+			<< "http://jp-dev.org/netcrypt/\n";
 		return false;
 	} else if (vm.count("version")) {
 		std::cout << "Netcrypt version " << NETCRYPT_VERSION << "\n";
