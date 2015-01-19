@@ -4,6 +4,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <assert.h>
+#include <stdexcept>
 
 namespace NetCrypt {
 
