@@ -17,6 +17,7 @@
 */
 #include "NetCrypt.h"
 #include "SymmetricEncryption.h"
+#include "CmdlineOptions.h"
 #include <boost/program_options.hpp>
 #include <unistd.h>
 #include <iostream>
@@ -53,15 +54,16 @@ ProgressTracker::ProgressTracker (size_t pTotal) {
 void ProgressTracker::printProgress () {
 	using namespace std::chrono;
 	const system_clock::time_point last = system_clock::now();
-	const milliseconds::rep millisec = duration_cast<milliseconds>(last - mStartTime).count();
-	const float totalTimeSec = millisec / 1000;
-	const float mbPerSecond = (mTransferred / totalTimeSec) / 1024 / 1024;
+	const microseconds::rep microsec = std::max (duration_cast<microseconds>(
+		last - mStartTime).count(), (microseconds::rep)1);
+	const float totalTimeSec = (float)microsec / 1000000;
+	const double mbPerSecond = (mTransferred / totalTimeSec) / 1024 / 1024;
 	if (mTotalSize == 0) {
-		fprintf (stderr, "%.3f MB/s, Bytes: %lu, Time: %.1f s\r",
+		fprintf (stderr, "  %.3f MB/s, Bytes: %lu, Time: %.2f s\r",
 				mbPerSecond, mTransferred, totalTimeSec);
 	} else {
-		const float ratio = ((float)mTransferred) / mTotalSize;
-		fprintf (stderr, "%.1f%% done,  %.3f MB/s, Bytes: %lu / %lu, Time: %.1f s\r",
+		const double ratio = ((double)mTransferred) / mTotalSize;
+		fprintf (stderr, "  %.1f%% done,  %.3f MB/s, Bytes: %lu / %lu, Time: %.2f s\r",
 				ratio * 100, mbPerSecond, mTransferred, mTotalSize, totalTimeSec);
 	}
 }
@@ -102,7 +104,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"Only useful in listening mode. Automatically enabled when reading from stdin.")
 		//("compression", po::value(&opt->compression) /*->value_name("algorithm")*/,
 		//	"Set compression algorithm")
-		("cipher", po::value(&opt->preferedCipher)
+		("cipher", po::value(&opt->preferredCipher)
 			->default_value("aes-256-gcm"), "Choice of encryption cipher.")
 		("digest", po::value(&opt->digest)
 			->default_value("sha-256"), "Name of secure message digest algorithm")
@@ -173,7 +175,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 				"when waiting for incoming connections");
 		if (vm.count("no-encryption") > 0)
 			std::cerr << "Cmdline parameter --no-encryption ignored.\n";
-		std::string rawPwd = Crypt::generateRandomString(Crypt::KeySizeForCipher(opt->preferedCipher.c_str()));
+		std::string rawPwd = Crypt::generateRandomString(Crypt::KeySizeForCipher(opt->preferredCipher.c_str()));
 		opt->passphrase.resize(rawPwd.size() * 2);
 		Crypt::uc2sc(&opt->passphrase[0], (const unsigned char*)rawPwd.data(), rawPwd.size());
 		std::cerr << "Generated passphrase: " << opt->passphrase << std::endl;
@@ -195,7 +197,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	if (vm.count("no-progress") > 0)
 		opt->showProgress = false;
 	// Check that cipher name is valid
-	(void)Crypt::KeySizeForCipher(opt->preferedCipher.c_str());
+	(void)Crypt::KeySizeForCipher(opt->preferredCipher.c_str());
 	return true;
 }
 

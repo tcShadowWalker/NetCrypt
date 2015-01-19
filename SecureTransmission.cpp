@@ -15,7 +15,7 @@
     You should have received a copy of the GNU General Public License
     along with NetCrypt.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "NetCrypt.h"
+#include "Transmission.h"
 #include "Progress.h"
 #include "SymmetricEncryption.h"
 #include <stdexcept>
@@ -26,16 +26,6 @@
 #include <arpa/inet.h>
 
 namespace NetCrypt {
-
-void writeDataToFile (const DataStream &dStream, const char *data, size_t length) {
-	dStream.out->write(data, length);
-}
-
-size_t fetchDataFromFile (const DataStream &dStream, char *data, size_t length) {
-	dStream.in->read(data, length);
-	ssize_t r = dStream.in->gcount();
-	return r;
-}
 
 struct TransmissionHeader {
 	char _Transmission_Cookie_Value_[SecureMagicCookie.size()];
@@ -67,10 +57,7 @@ void printDebugCryptoParameters (const TransmissionHeader &tInfo, const std::str
 	std::cerr << "Total byte size: " << tInfo.totalSize << "\n";
 }
 
-void receiveData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocket) {
-	assert (dataSocket != -1);
-	assert (pOpt.op == OP_READ);
-	assert (dStream.out != nullptr);
+void Transmission::receive_Secure (std::ostream &outStream) {
 	TransmissionHeader tranInfo;
 	if (read (dataSocket, &tranInfo, sizeof(tranInfo)) != sizeof(tranInfo))
 		throw std::runtime_error ("Read init error: " + std::string(strerror(errno)));
@@ -82,8 +69,8 @@ void receiveData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocke
 							strnlen(tranInfo.cipherName, sizeof(tranInfo.cipherName)));
 	Debug ("Using cipher " + usedCipher);
 	std::string realPassphrase (Crypt::KeySizeForCipher(usedCipher.c_str()), '\0');
-	Crypt::keyDerivation(pOpt.passphrase.c_str(), pOpt.passphrase.size(),
-						tranInfo.salt, tranInfo.saltLength, pOpt.keyIterationCount,
+	Crypt::keyDerivation(passphrase.c_str(), passphrase.size(),
+						tranInfo.salt, tranInfo.saltLength, keyIterationCount,
 						0, (unsigned char*)&realPassphrase[0], realPassphrase.size());
 	const size_t ivLen = Crypt::IvSizeForCipher(usedCipher.c_str()),
 				tagLen = Crypt::GCM_TAG_LENGTH;
@@ -136,47 +123,45 @@ void receiveData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocke
 				"passphrase does not match the one used for encryption");
 		}
 		tracker.add(blockSize);
-		if (pOpt.showProgress) {
+		if (doShowProgress) {
 			tracker.printProgress();
 		}
-		writeDataToFile (dStream, decryptedBlock.data(), decryptedBlock.size());
+		writeDataToFile (outStream, decryptedBlock.data(), decryptedBlock.size());
 	} while (tracker.transferred() < tranInfo.totalSize || tranInfo.totalSize == 0);
-	if (pOpt.showProgress)
+	if (doShowProgress)
 		std::cerr << "\n";
 	Debug ("Total bytes read: " + std::to_string(tracker.totalSize()));
+	if (tracker.transferred() < tranInfo.totalSize && tranInfo.totalSize != 0)
+		throw std::runtime_error ("Transmission ended prematurely, not all data was received");
 }
 
-void sendData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocket) {
-	assert (pOpt.op == OP_WRITE);
-	assert (dataSocket != -1);
-	assert (dStream.in != nullptr);
-	const std::string cipher = pOpt.preferedCipher;
-	const size_t ivLen = Crypt::IvSizeForCipher(cipher.c_str()),
+void Transmission::send_Secure (std::istream &inStream, size_t totalSize) {
+	const size_t ivLen = Crypt::IvSizeForCipher(preferredCipher.c_str()),
 				tagLen = Crypt::GCM_TAG_LENGTH;
-	std::string realPassphrase (Crypt::KeySizeForCipher(cipher.c_str()), '0');
-	std::vector<char> buffer (pOpt.blockSize);
+	std::string realPassphrase (Crypt::KeySizeForCipher(preferredCipher.c_str()), '0');
+	std::vector<char> buffer (blockSize);
 	TransmissionHeader tranInfo;
 	tranInfo.saltLength = sizeof(tranInfo.salt);
 	Crypt::generateRandomBytes(tranInfo.saltLength, tranInfo.salt);
-	Crypt::keyDerivation(pOpt.passphrase.c_str(), pOpt.passphrase.size(),
-						tranInfo.salt, tranInfo.saltLength, pOpt.keyIterationCount,
+	Crypt::keyDerivation(passphrase.c_str(), passphrase.size(),
+						tranInfo.salt, tranInfo.saltLength, keyIterationCount,
 						0, (unsigned char*)&realPassphrase[0], realPassphrase.size());
-	tranInfo.keyIterationCount = pOpt.keyIterationCount;
-	tranInfo.totalSize = dStream.totalSize;
-	tranInfo.initialBlockSize = pOpt.blockSize;
-	strncpy (tranInfo.cipherName, cipher.c_str(), sizeof(tranInfo.cipherName));
+	tranInfo.keyIterationCount = keyIterationCount;
+	tranInfo.totalSize = totalSize;
+	tranInfo.initialBlockSize = blockSize;
+	strncpy (tranInfo.cipherName, preferredCipher.c_str(), sizeof(tranInfo.cipherName));
 	if (DebugEnabled >= 2)
 		printDebugCryptoParameters (tranInfo, realPassphrase);
 	if (write (dataSocket, &tranInfo, sizeof(tranInfo)) != sizeof(tranInfo))
 		throw std::runtime_error ("Write init error: " + std::string(strerror(errno)));
-	Crypt::Encryption enc (cipher.c_str());
+	Crypt::Encryption enc (preferredCipher.c_str());
 	std::string outDataBlock;
 	enc.setOutputBuffer(&outDataBlock);
 	char iv[ivLen + 1];
 	ProgressTracker tracker (tranInfo.totalSize);
 	const size_t HeaderSize = ivLen + tagLen + sizeof(uint32_t);
 	while (true) {
-		const size_t r = fetchDataFromFile(dStream, buffer.data(), buffer.size());
+		const size_t r = fetchDataFromFile(inStream, buffer.data(), buffer.size());
 		if (r == 0)
 			break;
 		Crypt::generateRandomBytes(ivLen, iv);
@@ -185,6 +170,8 @@ void sendData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocket) 
 		enc.feed (buffer.data(), r);
 		enc.finalize();
 		if (DebugEnabled >= 3) {
+			if (doShowProgress)
+				ProgressTracker::clear();
 			std::cerr << "IV: " << printableString(std::string(iv, ivLen)) << "\n";
 			std::cerr << "Tag: " << printableString(std::string(enc.tag(), tagLen)) << "\n";
 		}
@@ -198,19 +185,12 @@ void sendData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocket) 
 			Crypt::generateHash(&outDataBlock[HeaderSize], blockSize, &hash);
 			std::cerr << "Sent: " << r << " (Digest: " << hash << ")\n";
 		}
-		size_t sentPkgBytes = 0;
-		while (sentPkgBytes < outDataBlock.size()) {
-			ssize_t w = write(dataSocket, &outDataBlock[sentPkgBytes],
-							  outDataBlock.size() - sentPkgBytes);
-			if (w <= 0)
-				throw std::runtime_error ("Write error. " + std::string((errno != 0) ? strerror(errno) : ""));
-			sentPkgBytes += w;
-		}
+		writeDataToSocket(&outDataBlock[0], outDataBlock.size()); // Write full block. Header + Payload.
 		tracker.add(blockSize);
-		if (pOpt.showProgress)
+		if (doShowProgress)
 			tracker.printProgress();
 	}
-	if (pOpt.showProgress)
+	if (doShowProgress)
 		std::cerr << "\n";
 	Debug ("Total bytes sent: " + std::to_string(tracker.totalSize()));
 }

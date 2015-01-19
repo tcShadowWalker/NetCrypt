@@ -33,11 +33,6 @@ inline void Debug (const std::string &s) {
 		printf ("%s\n", s.c_str());
 }
 
-bool stdinIsTerminal ();
-bool stdoutIsTerminal ();
-bool stderrIsTerminal ();
-void setTerminalEcho(bool enable);
-
 typedef std::unique_ptr<std::ifstream> IStreamPtr;
 typedef std::unique_ptr<std::ofstream> OStreamPtr;
 
@@ -53,32 +48,6 @@ enum NetworkOpType {
 	NET_NONE = 0,
 	NET_LISTEN,
 	NET_CONNECT,
-};
-
-enum OperationType {
-	OP_NONE = 0,
-	OP_READ,
-	OP_WRITE,
-};
-
-struct ProgOpts {
-	std::string preferedCipher;
-	std::string digest;
-	std::string passphrase;
-	bool generatePassphrase;
-	uint16_t listen_port;
-	bool acceptOnce;
-	int compression;
-	std::string infile;
-	std::string outfile;
-	std::string target_host;
-	uint16_t target_port;
-	unsigned int blockSize;
-	unsigned int keyIterationCount;
-	bool showProgress = true;
-	bool useEncryption = true;
-	NetworkOpType netOp = NET_NONE;
-	OperationType op = OP_NONE;
 };
 
 }

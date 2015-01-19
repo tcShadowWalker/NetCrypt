@@ -17,17 +17,18 @@
 */
 
 #include "NetCrypt.h"
+#include "Transmission.h"
+#include "CmdlineOptions.h"
 #include "Progress.h"
 #include <iostream>
-#include <vector>
 #include <string.h>
-#include <netdb.h>
 #include <stdexcept>
 #include <array>
-#include <arpa/inet.h>
 #include <signal.h>
 #include <unistd.h>
 #include <assert.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 
 namespace NetCrypt {
 namespace Crypt { void InitCryptLibrary (); }
@@ -38,69 +39,17 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt);
 
 void openInOutStream (DataStream *dstream, ProgOpts *opt);
 
-void openNetDevice (const ProgOpts &pOpt, DataStream &dStream, int *dataSocket) {
-	std::array<char,50> addr_ascii;
-	if (pOpt.netOp == NET_CONNECT) {
-		struct addrinfo hint;
-		memset(&hint, 0, sizeof(hint));
-		hint.ai_socktype = SOCK_STREAM;
-		struct addrinfo *results = 0;
-		int r = getaddrinfo(pOpt.target_host.c_str(), std::to_string(pOpt.target_port).c_str(), &hint, &results);
-		if (r != 0)
-			throw std::runtime_error (gai_strerror(r));
-		for (struct addrinfo *res = results; res; res = res->ai_next) {
-			*dataSocket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-			if (*dataSocket < 0)
-				continue;
-			getnameinfo((const sockaddr*)res->ai_addr, res->ai_addrlen,
-						addr_ascii.data(), addr_ascii.size() - 1, 0, 0, 0);
-			Debug(std::string("Connecting to ") + addr_ascii.data());
-			if (connect(*dataSocket, res->ai_addr, res->ai_addrlen) == 0) {
-				break;
-			}
-			close(*dataSocket);
-			*dataSocket = -1;
-		}
-		freeaddrinfo(results);
-		if (*dataSocket == -1)
-			throw std::runtime_error ("Failed to establish connection: " + std::string(strerror(errno)));
-	} else if (pOpt.netOp == NET_LISTEN) {
-		*dataSocket = socket(AF_INET6, SOCK_STREAM, 0);
-		if (*dataSocket < 0)
-			throw std::runtime_error ("Failed to open socket: " + std::string(strerror(errno)));
-		int reuseaddr = 1;
-		if (setsockopt(*dataSocket, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(reuseaddr)) != 0)
-			throw std::runtime_error ("Failed to set socket options: " + std::string(strerror(errno)));
-		sockaddr_in6 addr;
-		memset(&addr, 0, sizeof(addr));
-		addr.sin6_addr = IN6ADDR_ANY_INIT;
-		addr.sin6_family = AF_INET6;
-		addr.sin6_port = htons(pOpt.listen_port);
-		if (bind(*dataSocket, (const sockaddr*)&addr, sizeof(addr)) != 0)
-			throw std::runtime_error ("Failed to bind socket: " + std::string(strerror(errno)));
-		if (listen(*dataSocket, 1) != 0)
-			throw std::runtime_error ("Failed to listen on socket: " + std::string(strerror(errno)));
-	}
-	assert (*dataSocket != -1);
-}
-
-void receiveData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocket);
-void sendData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocket);
-
-void receiveUnencryptedData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocket);
-void sendUnencryptedData (const ProgOpts &pOpt, const DataStream &dStream, int dataSocket);
-
 void sendOrReceive (const ProgOpts &progOpt, const DataStream &dStream, int dataSocket) {
+	Transmission t (progOpt.blockSize);
+	if (progOpt.useEncryption) {
+		t.setPassphrase(progOpt.passphrase, progOpt.keyIterationCount);
+		t.setPreferredCipher(progOpt.preferredCipher);
+	}
+	t.showProgress (progOpt.showProgress);
 	if (progOpt.op == OP_READ) {
-		if (progOpt.useEncryption)
-			receiveData(progOpt, dStream, dataSocket);
-		else
-			receiveUnencryptedData(progOpt, dStream, dataSocket);
+		t.receive(dataSocket, *dStream.out);
 	} else {
-		if (progOpt.useEncryption)
-			sendData(progOpt, dStream, dataSocket);
-		else
-			sendUnencryptedData(progOpt, dStream, dataSocket);
+		t.send(dataSocket, *dStream.in, dStream.totalSize);
 	}
 }
 
@@ -126,7 +75,8 @@ int main (int argc, char **argv) {
 	signal(SIGPIPE, SIG_IGN);
 	int serverSock;
 	try {
-		openNetDevice (progOpt, dStream, &serverSock);
+		uint16_t port = (progOpt.netOp == NET_LISTEN) ? progOpt.listen_port : progOpt.target_port;
+		openNetDevice (progOpt.netOp, progOpt.target_host, port, &serverSock);
 	} catch (const std::exception &e) {
 		std::cerr << "Networking error: " << e.what() << "\n";
 		return 1;

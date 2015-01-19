@@ -1,3 +1,4 @@
+#pragma once
 /*
     Copyright (C) 2015 Jan-Philip Stecker.
     This file is part of NetCrypt.
@@ -15,39 +16,39 @@
     You should have received a copy of the GNU General Public License
     along with NetCrypt.  If not, see <http://www.gnu.org/licenses/>.
 */
-#pragma once
-#include <stdint.h>
-#include <chrono>
+#include "NetCrypt.h"
 
 namespace NetCrypt {
 
-class ProgressTracker
-{
-public:
-	ProgressTracker (size_t totalSize = 0);
-	
-	inline void add (size_t s);
-	
-	size_t totalSize () const { return mTotalSize; }
-	
-	size_t transferred () const { return mTransferred; }
-	
-	std::chrono::system_clock::duration duration () const {
-		return std::chrono::system_clock::now() - mStartTime;
-	}
-	
-	static void clear ();
-	
-	void printProgress ();
-	
-private:
-	size_t mTotalSize;
-	size_t mTransferred;
-	std::chrono::high_resolution_clock::time_point mStartTime;
+bool stdinIsTerminal ();
+bool stdoutIsTerminal ();
+bool stderrIsTerminal ();
+void setTerminalEcho(bool enable);
+
+enum OperationType {
+	OP_NONE = 0,
+	OP_READ,
+	OP_WRITE,
 };
 
-void ProgressTracker::add (size_t s) {
-	mTransferred += s;
-}
+struct ProgOpts {
+	std::string preferredCipher;
+	std::string digest;
+	std::string passphrase;
+	bool generatePassphrase;
+	uint16_t listen_port;
+	bool acceptOnce;
+	int compression;
+	std::string infile;
+	std::string outfile;
+	std::string target_host;
+	uint16_t target_port;
+	unsigned int blockSize;
+	unsigned int keyIterationCount;
+	bool showProgress = true;
+	bool useEncryption = true;
+	NetworkOpType netOp = NET_NONE;
+	OperationType op = OP_NONE;
+};
 
 }
