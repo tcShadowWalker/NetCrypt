@@ -5,6 +5,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <stdexcept>
+#include <array>
 
 namespace NetCrypt {
 
