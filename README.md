@@ -1,4 +1,4 @@
-<img style="float: right" src="http://jp-dev.org/netcrypt/NetCrypt.png" />
+<img style="float: right;" src="http://jp-dev.org/netcrypt/NetCrypt.png" />
 # NetCrypt
 Secure network file tansmission using authenticated encryption.
 
