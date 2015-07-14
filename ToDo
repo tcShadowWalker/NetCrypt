@@ -1,0 +1,11 @@
+
+Allow to start netcrypt on remote target over SSH.
+Problems:
+- SSH library is not really fit for that.
+- We can copy the binary being executed; however, that requires the target machine to have the same architecture (and preferrably a similar distri).
+
+Print transferred size in bytes on success.
+
+Allow input offset and maximum byte count
+
+Print progress only once per second, not after every packet

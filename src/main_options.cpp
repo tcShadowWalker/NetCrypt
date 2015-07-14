@@ -68,12 +68,17 @@ void ProgressTracker::printProgress () {
 	}
 }
 
-void ProgressTracker::clear () {
+static int getTerminalCharacterWidth () {
 	struct winsize w;
-    ioctl(STDERR_FILENO, TIOCGWINSZ, &w);
-	char line[w.ws_col + 1];
-	memset (line, ' ', w.ws_col);
-	line[w.ws_col] = '\0';
+	ioctl(STDERR_FILENO, TIOCGWINSZ, &w);
+	return w.ws_col;
+}
+
+void ProgressTracker::clear () {
+	int w = getTerminalCharacterWidth();
+	char line[w + 1];
+	memset (line, ' ', w);
+	line[w] = '\0';
 	fprintf (stderr, "%s\n", line);
 }
 
@@ -88,24 +93,31 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 			"2 - output cryptographic data in encoded cleartext.\n"
 			"3 - print metadata about all transmitted packages")
 	;
-	po::options_description cfg_desc("Program options");
-	cfg_desc.add_options()
+	po::options_description connect_desc("Connection options");
+	connect_desc.add_options()
 		("listen,l", po::value(&opt->listen_port) /*->value_name("port")*/,
 			"Listen on port")
-		("infile,i", po::value(&opt->infile) /*->value_name("filename")*/,
-			"Input file or device to read from")
-		("outfile,o", po::value(&opt->outfile) /*->value_name("filename")*/,
-			"Output file or device to  write to")
 		("host,h", po::value(&opt->target_host) /*->value_name("hostname")*/,
 			"Hostname to connect to")
 		("port,p", po::value(&opt->target_port), "Target port to connect to")
 		("once", po::bool_switch(&opt->acceptOnce)->default_value(false),
 			"Accept only one incomming connection and exit after transmission. "
 			"Only useful in listening mode. Automatically enabled when reading from stdin.")
+	;
+	po::options_description inout_desc("Input/Output options");
+	inout_desc.add_options()
+		("infile,i", po::value(&opt->infile) /*->value_name("filename")*/,
+			"Input file or device to read from")
+		("outfile,o", po::value(&opt->outfile) /*->value_name("filename")*/,
+			"Output file or device to  write to")
+	;
+	po::options_description cfg_desc("Program options");
+	cfg_desc.add_options()
 		//("compression", po::value(&opt->compression) /*->value_name("algorithm")*/,
 		//	"Set compression algorithm")
 		("cipher", po::value(&opt->preferredCipher)
-			->default_value("aes-256-gcm"), "Choice of encryption cipher.")
+			->default_value("aes-256-gcm"), "Choice of authenticated encryption cipher."
+			"Any other kind of cipher will not work. Recommended: AES-256-GCM")
 		("digest", po::value(&opt->digest)
 			->default_value("sha-256"), "Name of secure message digest algorithm")
 		("blocksize", po::value(&opt->blockSize)->default_value(32768), "Transmission block size")
@@ -118,15 +130,17 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		("no-progress", "Do not show progress and speed of transfer.\n"
 			"Otherwise, a progress meter is shown when used interactively")
 		("no-encryption", "Disable authenticated encryption. "
-			 "Wholly insecure plaintext transmission. Only intended for testing purposes.")
+			"Wholly insecure plaintext transmission. Only intended for testing purposes."
+			"This option provides compatibility with netcat and similar tools")
 	;
 	po::options_description passphrase_desc("Passphrase options");
 	passphrase_desc.add_options()
 		("passphrase", po::value(&opt->passphrase), "Passphrase for encryption")
 	;
+	const int term_width = getTerminalCharacterWidth();
 	po::variables_map vm;
-	po::options_description cmdline_options;
-	cmdline_options.add(cfg_desc).add(general_desc);
+	po::options_description cmdline_options ("test", term_width, term_width / 2);
+	cmdline_options.add(connect_desc).add(inout_desc).add(cfg_desc).add(general_desc);
 	po::store(po::parse_command_line(argc, argv, cmdline_options), vm);
 	po::store(po::parse_environment(passphrase_desc, "NETCRYPT_"), vm);
 	po::notify(vm);
@@ -143,7 +157,7 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 		return false;
 	} else if (vm.count("version")) {
 		std::cout << "Netcrypt version " << NETCRYPT_VERSION << "\n";
-		return false;
+		exit(0);
 	}
 	if (vm.count("listen") > 0)
 		opt->netOp = NET_LISTEN;
