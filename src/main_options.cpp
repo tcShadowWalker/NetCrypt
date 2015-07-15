@@ -22,9 +22,6 @@
 #include <unistd.h>
 #include <iostream>
 #include <string.h>
-#include <sys/poll.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
 #include <termios.h>
 #include "Progress.h"
 #include <sys/ioctl.h>
@@ -215,16 +212,21 @@ bool evaluateOptions (int argc, char **argv, ProgOpts *opt) {
 	return true;
 }
 
+void getFileSize (const std::string &filename, uint64_t *totalSize) {
+	assert (totalSize);
+	std::ifstream in (filename, std::ifstream::ate | std::ifstream::binary);
+	*totalSize = in.tellg(); 
+	if (*totalSize == std::ifstream::pos_type(-1)) {
+		*totalSize = 0;
+		Debug("Determining input size failed");
+	}
+}
+
 void openInOutStream (DataStream *dstream, ProgOpts *opt) {
 	if (opt->infile != "") {
 		opt->op = OP_WRITE;
 		Debug("Input from file " + opt->infile);
-		struct stat st;
-		if (stat (opt->infile.c_str(), &st) == 0) {
-			dstream->totalSize = st.st_size;
-			Debug("Input file total size: " + std::to_string(st.st_size));
-		} else
-			Debug("stat() failed on input file");
+		getFileSize (opt->infile, &dstream->totalSize);
 		dstream->inPtr.reset(new std::ifstream (opt->infile, std::ios::in));
 		if (!dstream->inPtr->is_open())
 			throw std::runtime_error ("Could not open input file " + opt->infile);
